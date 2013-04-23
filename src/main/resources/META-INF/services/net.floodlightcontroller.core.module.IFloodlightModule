@@ -3,7 +3,7 @@ net.floodlightcontroller.storage.memory.MemoryStorageSource
 net.floodlightcontroller.devicemanager.internal.DeviceManagerImpl
 net.floodlightcontroller.linkdiscovery.internal.LinkDiscoveryManager
 net.floodlightcontroller.topology.TopologyManager
-net.floodlightcontroller.forwarding.Forwarding
+net.floodlightcontroller.ratelimiter.RateLimiterController
 net.floodlightcontroller.flowcache.FlowCache
 net.floodlightcontroller.flowcache.FlowReconcileManager
 net.floodlightcontroller.core.OFMessageFilterManager

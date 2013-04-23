@@ -31,14 +31,19 @@ import net.floodlightcontroller.routing.IRoutingService;
 import net.floodlightcontroller.routing.Route;
 import net.floodlightcontroller.topology.ITopologyService;
 import net.floodlightcontroller.topology.NodePortTuple;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class RateLimiterController extends Forwarding implements RateLimiterService {
+public class RateLimiterController extends Forwarding {
 	private Map<Integer, Policy> policyStorage;
 	private Map<Integer, Flow> flowStorage;
 	private Map<Integer, HashSet<Policy>> subSets;
 	private Map<SwitchPair, Integer> distance;
+    private static Logger log = LoggerFactory.getLogger(RateLimiterController.class);
 	
 	public boolean flowBelongsToRule(OFMatch flow, OFMatch rule){
+        log.warn("flow: " + flow.toString() + " rule: " + rule.toString());
+
 		int rulewc = rule.getWildcards();
 		if(!((rulewc & OFMatch.OFPFW_IN_PORT) == OFMatch.OFPFW_IN_PORT) || 
 				rule.getInputPort() == flow.getInputPort())
@@ -67,15 +72,15 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 		
 		int ruleSrcMask = rule.getNetworkSourceMaskLen();
 		int matchSrcMask = flow.getNetworkSourceMaskLen();
-		if(!(ruleSrcMask >= matchSrcMask && 
+		if(!(ruleSrcMask <= matchSrcMask &&
 				(rule.getNetworkSource() & (0xffffffff << ruleSrcMask)) ==
-				(flow.getNetworkSource() & (0xffffffff << matchSrcMask))))
+				(flow.getNetworkSource() & (0xffffffff << ruleSrcMask))))
 			return false;
 		int ruleDstMask = rule.getNetworkDestinationMaskLen();
 		int matchDstMask = flow.getNetworkDestinationMaskLen();
-		if(!(ruleDstMask >= matchDstMask && 
+		if(!(ruleDstMask <= matchDstMask &&
 				(rule.getNetworkDestination() & (0xffffffff << ruleDstMask)) ==
-				(flow.getNetworkSource() & (0xffffffff << matchDstMask))))
+				(flow.getNetworkSource() & (0xffffffff << ruleDstMask))))
 			return false;
 		
 		return true;
@@ -84,14 +89,21 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 	private Set<Policy> matchPoliciesFromStorage(OFMatch match){
 		Set<Policy> matchedPolicies= new HashSet<Policy>();
 		Iterator itp = policyStorage.values().iterator();
+        if (!policyStorage.isEmpty()) {
+            log.warn("Has at least one policy");
+        }
 		while(itp.hasNext()){
 			Policy policytmp = (Policy) itp.next();
 			if(policytmp.flows.contains(Integer.valueOf(match.hashCode())))
 				continue;
 			Iterator itr = policytmp.rules.iterator();
 			while(itr.hasNext()){
-				if(flowBelongsToRule(match, (OFMatch) itr.next()))
+				if(flowBelongsToRule(match, (OFMatch) itr.next())) {
 					matchedPolicies.add(policytmp);
+                    log.warn("Flow matches");
+                } else {
+                    log.warn("Flow doesn't match");
+                }
 			}
 			
 		}
@@ -113,12 +125,16 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 	}*/ 
 	
 	private boolean processPacket(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx){
+        Map<Long, IOFSwitch> switches = floodlightProvider.getSwitches();
+
+        log.warn(switches.toString());
+
 		OFMatch match = new OFMatch();
 		match.loadFromPacket(pi.getPacketData(), pi.getInPort());
 		//TODO match packet in the ruleStorage and decide what to do next.
 		Set<Policy> policies = matchPoliciesFromStorage(match);
 		if(policies.isEmpty()) return false;
-		
+/*
 		IDevice srcDevice =
                 IDeviceService.fcStore.
                     get(cntx, IDeviceService.CONTEXT_SRC_DEVICE);
@@ -141,7 +157,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 			deletePolicyFromStorage(policiesToDelete);
 		}
 		
-		
+*/
 		return true;
 		
 	}
@@ -286,61 +302,16 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
     	/* First check if the packet match the existing rules. 
     	 * If it does then process it, otherwise forward it as default packet
     	 */
-    	if(processPacket(sw, pi, cntx) == true) return Command.CONTINUE;
-    	
-    	Ethernet eth = IFloodlightProviderService.bcStore.get(cntx, 
-                IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
+    	//if(processPacket(sw, pi, cntx)) return Command.CONTINUE;
+        processPacket(sw, pi, cntx);
 
-		// If a decision has been made we obey it
-		// otherwise we just forward
-		if (decision != null) {
-			if (log.isTraceEnabled()) {
-				log.trace("Forwaring decision={} was made for PacketIn={}",
-						decision.getRoutingAction().toString(),
-						pi);
-			}
-		
-			switch(decision.getRoutingAction()) {
-			case NONE:
-				// don't do anything
-				return Command.CONTINUE;
-			case FORWARD_OR_FLOOD:
-			case FORWARD:
-				doForwardFlow(sw, pi, cntx, false);
-				return Command.CONTINUE;
-			case MULTICAST:
-				// treat as broadcast
-				doFlood(sw, pi, cntx);
-				return Command.CONTINUE;
-			case DROP:
-				doDropFlow(sw, pi, decision, cntx);
-				return Command.CONTINUE;
-			default:
-				log.error("Unexpected decision made for this packet-in={}",
-			         pi, decision.getRoutingAction());
-				return Command.CONTINUE;
-			}
-		} else {
-			if (log.isTraceEnabled()) {
-				log.trace("No decision was made for PacketIn={}, forwarding",
-						pi);
-			}
-		
-			if (eth.isBroadcast() || eth.isMulticast()) {
-				// For now we treat multicast as broadcast
-				doFlood(sw, pi, cntx);
-			} else {
-				doForwardFlow(sw, pi, cntx, false);
-			}
-		}
-		
-		return Command.CONTINUE;
+        return super.processPacketInMessage(sw, pi, decision, cntx);
     }
 	
 	private Map<SwitchPair, Integer> initAllPairDistance() {
 		// TODO Auto-generated method stub
 		Map<SwitchPair, Integer> distances = new HashMap<SwitchPair, Integer>();
-		Map<Long, IOFSwitch> switches = floodlightProvider.getSwitches();
+        Map<Long, IOFSwitch> switches = floodlightProvider.getSwitches();
 		Iterator it1 = switches.keySet().iterator();
 		while(it1.hasNext()){
 			Long swId1 = (Long) it1.next();
@@ -368,6 +339,12 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
     	this.flowStorage = new HashMap<Integer, Flow>();
     	
     	this.distance = initAllPairDistance();
+        OFMatch temp_match = new OFMatch();
+        temp_match.setNetworkDestination(167772164);
+        Set<OFMatch> temp_policyset = new HashSet<OFMatch>();
+        temp_policyset.add(temp_match);
+        Policy temp_policy = new Policy(temp_policyset);
+        policyStorage.put(Integer.valueOf(temp_policy.hashCode()), temp_policy);
 
         // read our config options
         Map<String, String> configOptions = context.getConfigParams(this);
@@ -396,16 +373,4 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         log.debug("FlowMod hard timeout set to {} seconds", 
                   FLOWMOD_DEFAULT_HARD_TIMEOUT);
     }
-
-	@Override
-	public void addPolicy(Policy p) {
-		// TODO Auto-generated method stub
-		
-	}
-
-	@Override
-	public void deletePolicy(Policy p) {
-		// TODO Auto-generated method stub
-		
-	}
 }
