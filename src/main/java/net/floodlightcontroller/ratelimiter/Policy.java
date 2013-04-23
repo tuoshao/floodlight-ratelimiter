@@ -11,7 +11,7 @@ import org.openflow.protocol.OFMatch;
 public class Policy {
 	int policyid;
 	Set<OFMatch> rules;
-	Set<Integer> flows;
+	Set<Flow> flows;
 	int flowcount;
 	short speed;
 	long dpid;
@@ -20,7 +20,7 @@ public class Policy {
 
 	public Policy(Set<OFMatch> r){
 		rules = r;
-		flows = new HashSet<Integer>();
+		flows = new HashSet<Flow>();
 		flowcount = 0;
 		speed = 0;
 		//dpid and port are initialized with max value, meaning it's uninstalled
@@ -30,8 +30,8 @@ public class Policy {
 		policyid = this.hashCode();
 	}
 	
-	public void addFlow(int flowHashCode){
-		flows.add(Integer.valueOf(flowHashCode));
+	public void addFlow(Flow flow){
+		flows.add(flow);
 	}
 	
 	public int hashCode(){

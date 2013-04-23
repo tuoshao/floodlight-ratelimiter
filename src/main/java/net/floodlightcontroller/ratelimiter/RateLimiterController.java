@@ -33,7 +33,6 @@ import net.floodlightcontroller.topology.ITopologyService;
 import net.floodlightcontroller.topology.NodePortTuple;
 
 public class RateLimiterController extends Forwarding implements RateLimiterService {
-	private Map<Integer, Rule> ruleStorage;
 	private Map<Integer, Policy> policyStorage;
 	private Map<Integer, Flow> flowStorage;
 	private Map<Integer, HashSet<Policy>> subSets;
@@ -216,7 +215,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 				// TODO We could apply some strategies here to decide which policy to stay in the same switch
 				Policy p = policySameSwitch.get(0);
 				updatePolicyWithFlow(flow, p);
-				flow.addPolicy(p.policyid);
+				flow.addPolicy(p);
 				int i = 1;
 				int size = policySameSwitch.size();
 				while(i<size){
@@ -226,7 +225,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 						policiesToDelete.add(p);
 						deleteFlowFromPolicy(p, flow);
 					} else {
-						flow.addPolicy(p.policyid);
+						flow.addPolicy(p);
 					}
 					i++;
 				}
@@ -236,23 +235,28 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 				int size = policySameSwitch.size();
 				while(i<size){
 					Policy p = policySameSwitch.get(i);
-					if(fineNewSwitch(p, route) == false){
+					if(findNewSwitch(p, route) == false){
 						policiesToDelete.add(p);
 					}else{
 						updatePolicyWithFlow(flow, p);
-						flow.addPolicy(p.policyid);
+						flow.addPolicy(p);
 					}
 					i++;
 				}
 			}
+		}
+		if(!flow.getPoliy().isEmpty()) {
+			flowStorage.put(flow.hashCode(), flow);
 		}
 		// we can also implement a optimization here to determine
 		// whether the switches are affecting the route of flow too much
 		return policiesToDelete;
 	}
 
-	private boolean fineNewSwitch(Policy p, Route route) {
+	private boolean findNewSwitch(Policy p, Route route) {
 		// TODO Auto-generated method stub
+		List<NodePortTuple> path = route.getPath();
+		
 		return false;
 	}
 
@@ -360,7 +364,6 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         this.topology = context.getServiceImpl(ITopologyService.class);
         this.counterStore = context.getServiceImpl(ICounterStoreService.class);
         
-        this.ruleStorage = new HashMap<Integer, Rule>();
         this.policyStorage = new HashMap<Integer, Policy>();
     	this.flowStorage = new HashMap<Integer, Flow>();
     	

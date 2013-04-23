@@ -37,7 +37,8 @@ import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
 import net.floodlightcontroller.core.module.IFloodlightService;
 
-public class QueueCreaterController implements IOFSwitchListener, IOFMessageListener, IFloodlightModule {
+public class QueueCreaterController implements IOFSwitchListener, 
+IOFMessageListener, IFloodlightModule, IQueueCreaterService {
 
     protected IFloodlightProviderService floodlightProvider;
     protected static Logger logger;
@@ -234,7 +235,7 @@ public class QueueCreaterController implements IOFSwitchListener, IOFMessageList
         return Command.CONTINUE;
 	}
 
-    private void getAllQueueConfigs(IOFSwitch sw) {
+    public void getAllQueueConfigs(IOFSwitch sw) {
         OFQueueGetConfigRequest m = new OFQueueGetConfigRequest();
         
         Collection<OFPhysicalPort> ports = sw.getPorts();
@@ -286,7 +287,7 @@ public class QueueCreaterController implements IOFSwitchListener, IOFMessageList
         sw.flush();
     }
 
-    private void createQueue(IOFSwitch sw, short portNumber, int queueId, short rate) {
+    public void createQueue(IOFSwitch sw, short portNumber, int queueId, short rate) {
         OFQueueProp prop = new OFQueueProp();
         prop.setType(OFQueuePropType.OFPQT_MAX_RATE);
         prop.setRate(rate);
@@ -302,7 +303,7 @@ public class QueueCreaterController implements IOFSwitchListener, IOFMessageList
         sendOFVendorData(sw, queueModifyData);
     }
 
-    private void deleteQueue(IOFSwitch sw, short portNumber, int queueId) {
+    public void deleteQueue(IOFSwitch sw, short portNumber, int queueId) {
         OFPacketQueue queue = new OFPacketQueue(queueId);
 
         OFQueueDeleteVendorData queueDeleteData = new OFQueueDeleteVendorData();
