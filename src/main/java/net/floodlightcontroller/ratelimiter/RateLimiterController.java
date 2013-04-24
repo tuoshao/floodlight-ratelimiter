@@ -11,6 +11,10 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
+import net.floodlightcontroller.core.util.AppCookie;
+import net.floodlightcontroller.linkdiscovery.ILinkDiscoveryService;
+import net.floodlightcontroller.routing.*;
+import org.openflow.protocol.OFFlowMod;
 import org.openflow.protocol.OFMatch;
 import org.openflow.protocol.OFPacketIn;
 
@@ -26,9 +30,6 @@ import net.floodlightcontroller.devicemanager.IDeviceService;
 import net.floodlightcontroller.devicemanager.SwitchPort;
 import net.floodlightcontroller.forwarding.Forwarding;
 import net.floodlightcontroller.packet.Ethernet;
-import net.floodlightcontroller.routing.IRoutingDecision;
-import net.floodlightcontroller.routing.IRoutingService;
-import net.floodlightcontroller.routing.Route;
 import net.floodlightcontroller.topology.ITopologyService;
 import net.floodlightcontroller.topology.NodePortTuple;
 import org.slf4j.Logger;
@@ -41,47 +42,48 @@ public class RateLimiterController extends Forwarding {
 	private Map<Integer, HashSet<Policy>> subSets;
 	private Map<SwitchPair, Integer> distance;
     private static Logger log = LoggerFactory.getLogger(RateLimiterController.class);
+    private ILinkDiscoveryService linkService;
 	
 	public boolean flowBelongsToRule(OFMatch flow, OFMatch rule){
         log.warn("flow: " + flow.toString() + " rule: " + rule.toString());
 
 		int rulewc = rule.getWildcards();
-		if(!((rulewc & OFMatch.OFPFW_IN_PORT) == OFMatch.OFPFW_IN_PORT) || 
-				rule.getInputPort() == flow.getInputPort())
+		if(!(((rulewc & OFMatch.OFPFW_IN_PORT) == OFMatch.OFPFW_IN_PORT) ||
+				rule.getInputPort() == flow.getInputPort()))
 			return false;
-		if(!((rulewc & OFMatch.OFPFW_DL_VLAN) == OFMatch.OFPFW_DL_VLAN) || 
-				rule.getDataLayerVirtualLan() == flow.getDataLayerVirtualLan())
+		if(!(((rulewc & OFMatch.OFPFW_DL_VLAN) == OFMatch.OFPFW_DL_VLAN) ||
+				rule.getDataLayerVirtualLan() == flow.getDataLayerVirtualLan()))
 			return false;
-		if(!((rulewc & OFMatch.OFPFW_DL_SRC) == OFMatch.OFPFW_DL_SRC) || 
-				Arrays.equals(rule.getDataLayerSource(), flow.getDataLayerSource()))
+		if(!(((rulewc & OFMatch.OFPFW_DL_SRC) == OFMatch.OFPFW_DL_SRC) ||
+				Arrays.equals(rule.getDataLayerSource(), flow.getDataLayerSource())))
 			return false;
-		if(!((rulewc & OFMatch.OFPFW_DL_DST) == OFMatch.OFPFW_DL_DST) || 
-				Arrays.equals(rule.getDataLayerDestination(), flow.getDataLayerDestination()))
+		if(!(((rulewc & OFMatch.OFPFW_DL_DST) == OFMatch.OFPFW_DL_DST) ||
+				Arrays.equals(rule.getDataLayerDestination(), flow.getDataLayerDestination())))
 			return false;
-		if(!((rulewc & OFMatch.OFPFW_DL_TYPE) == OFMatch.OFPFW_DL_TYPE) || 
-				rule.getDataLayerType() == flow.getDataLayerType())
+		if(!(((rulewc & OFMatch.OFPFW_DL_TYPE) == OFMatch.OFPFW_DL_TYPE) ||
+				rule.getDataLayerType() == flow.getDataLayerType()))
 			return false;
-		if(!((rulewc & OFMatch.OFPFW_NW_PROTO) == OFMatch.OFPFW_NW_PROTO) || 
-				rule.getNetworkProtocol() == flow.getNetworkProtocol())
+		if(!(((rulewc & OFMatch.OFPFW_NW_PROTO) == OFMatch.OFPFW_NW_PROTO) ||
+				rule.getNetworkProtocol() == flow.getNetworkProtocol()))
 			return false;
-		if(!((rulewc & OFMatch.OFPFW_TP_SRC) == OFMatch.OFPFW_TP_SRC) || 
-				rule.getTransportSource() == flow.getTransportSource())
+		if(!(((rulewc & OFMatch.OFPFW_TP_SRC) == OFMatch.OFPFW_TP_SRC) ||
+				rule.getTransportSource() == flow.getTransportSource()))
 			return false;
-		if(!((rulewc & OFMatch.OFPFW_TP_DST) == OFMatch.OFPFW_TP_DST) || 
-				rule.getTransportDestination() == flow.getTransportDestination())
+		if(!(((rulewc & OFMatch.OFPFW_TP_DST) == OFMatch.OFPFW_TP_DST) ||
+				rule.getTransportDestination() == flow.getTransportDestination()))
 			return false;
 		
 		int ruleSrcMask = rule.getNetworkSourceMaskLen();
 		int matchSrcMask = flow.getNetworkSourceMaskLen();
 		if(!(ruleSrcMask <= matchSrcMask &&
-				(rule.getNetworkSource() & (0xffffffff << ruleSrcMask)) ==
-				(flow.getNetworkSource() & (0xffffffff << ruleSrcMask))))
+				(rule.getNetworkSource() & ((ruleSrcMask == 0)? 0:0xffffffff << ruleSrcMask)) ==
+				(flow.getNetworkSource() & ((ruleSrcMask == 0)? 0:0xffffffff << ruleSrcMask))))
 			return false;
 		int ruleDstMask = rule.getNetworkDestinationMaskLen();
 		int matchDstMask = flow.getNetworkDestinationMaskLen();
 		if(!(ruleDstMask <= matchDstMask &&
-				(rule.getNetworkDestination() & (0xffffffff << ruleDstMask)) ==
-				(flow.getNetworkSource() & (0xffffffff << ruleDstMask))))
+				(rule.getNetworkDestination() & ((ruleDstMask == 0)? 0:0xffffffff << ruleDstMask)) ==
+				(flow.getNetworkDestination() & ((ruleDstMask == 0)? 0:0xffffffff << ruleDstMask))))
 			return false;
 		
 		return true;
@@ -90,9 +92,6 @@ public class RateLimiterController extends Forwarding {
 	private Set<Policy> matchPoliciesFromStorage(OFMatch match){
 		Set<Policy> matchedPolicies= new HashSet<Policy>();
 		Iterator itp = policyStorage.values().iterator();
-        if (!policyStorage.isEmpty()) {
-            log.warn("Has at least one policy");
-        }
 		while(itp.hasNext()){
 			Policy policytmp = (Policy) itp.next();
 			if(policytmp.flows.contains(Integer.valueOf(match.hashCode())))
@@ -101,9 +100,6 @@ public class RateLimiterController extends Forwarding {
 			while(itr.hasNext()){
 				if(flowBelongsToRule(match, (OFMatch) itr.next())) {
 					matchedPolicies.add(policytmp);
-                    log.warn("Flow matches");
-                } else {
-                    log.warn("Flow doesn't match");
                 }
 			}
 			
@@ -126,15 +122,50 @@ public class RateLimiterController extends Forwarding {
 	}*/ 
 	
 	private boolean processPacket(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx){
-        Map<Long, IOFSwitch> switches = floodlightProvider.getSwitches();
+        log.warn(sw.toString());
 
-        log.warn(switches.toString());
+        IDevice dstDevice =
+                IDeviceService.fcStore.
+                        get(cntx, IDeviceService.CONTEXT_DST_DEVICE);
+
+        //We can't handle packets with unknown destination
+        if (dstDevice == null) {
+            return false;
+        }
 
 		OFMatch match = new OFMatch();
 		match.loadFromPacket(pi.getPacketData(), pi.getInPort());
+
 		//TODO match packet in the ruleStorage and decide what to do next.
 		Set<Policy> policies = matchPoliciesFromStorage(match);
 		if(policies.isEmpty()) return false;
+
+        SwitchPort[] dstDaps = dstDevice.getAttachmentPoints();
+        SwitchPort dstsw = dstDaps[0];
+        Map<Long, IOFSwitch> switches = floodlightProvider.getSwitches();
+        IOFSwitch s2 = switches.get(Long.valueOf(2));
+        NodePortTuple s2tuple = new NodePortTuple(s2.getId(), Short.valueOf((short) 2));
+        Set<Link> s2links = linkService.getPortLinks().get(s2tuple);
+        NodePortTuple s2next = null;
+        for (Link l : s2links) {
+            if (l.getSrc() == s2.getId() && l.getSrcPort() == 2) {
+                s2next = new NodePortTuple(l.getDst(), l.getDstPort());
+                break;
+            }
+        }
+
+        Route r1 = routingEngine.getRoute(sw.getId(), pi.getInPort(), s2.getId(), (short)2, 0);
+        Route r2 = routingEngine.getRoute(s2next.getNodeId(), s2next.getPortId(), dstsw.getSwitchDPID(), (short) dstsw.getPort(), 0);
+        RouteId rid = new RouteId(sw.getId(), dstsw.getSwitchDPID(), 1);
+        List<NodePortTuple> routelist = new ArrayList<NodePortTuple>();
+        routelist.addAll(r1.getPath());
+        routelist.addAll(r2.getPath());
+        Route route = new Route(rid, routelist);
+
+        long cookie = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
+        pushRoute(route, match, match.getWildcards(), pi, sw.getId(), cookie,
+                cntx, false, false, OFFlowMod.OFPFC_ADD);
+
 /*
 		IDevice srcDevice =
                 IDeviceService.fcStore.
@@ -298,8 +329,10 @@ public class RateLimiterController extends Forwarding {
     	/* First check if the packet match the existing rules. 
     	 * If it does then process it, otherwise forward it as default packet
     	 */
-    	//if(processPacket(sw, pi, cntx)) return Command.CONTINUE;
-        processPacket(sw, pi, cntx);
+        Map<Long, IOFSwitch> switches = floodlightProvider.getSwitches();
+        if(processPacket(sw, pi, cntx)) {
+            return Command.CONTINUE;
+        }
 
         return super.processPacketInMessage(sw, pi, decision, cntx);
     }
@@ -330,44 +363,19 @@ public class RateLimiterController extends Forwarding {
         this.routingEngine = context.getServiceImpl(IRoutingService.class);
         this.topology = context.getServiceImpl(ITopologyService.class);
         this.counterStore = context.getServiceImpl(ICounterStoreService.class);
-        
+        this.linkService = context.getServiceImpl(ILinkDiscoveryService.class);
+
         this.ruleStorage = new HashMap<Integer, Rule>();
         this.policyStorage = new HashMap<Integer, Policy>();
     	this.flowStorage = new HashMap<Integer, Flow>();
     	
     	this.distance = initAllPairDistance();
         OFMatch temp_match = new OFMatch();
+        temp_match.setWildcards(~OFMatch.OFPFW_NW_DST_MASK);
         temp_match.setNetworkDestination(167772164);
         Set<OFMatch> temp_policyset = new HashSet<OFMatch>();
         temp_policyset.add(temp_match);
         Policy temp_policy = new Policy(temp_policyset);
         policyStorage.put(Integer.valueOf(temp_policy.hashCode()), temp_policy);
-
-        // read our config options
-        Map<String, String> configOptions = context.getConfigParams(this);
-        try {
-            String idleTimeout = configOptions.get("idletimeout");
-            if (idleTimeout != null) {
-                FLOWMOD_DEFAULT_IDLE_TIMEOUT = Short.parseShort(idleTimeout);
-            }
-        } catch (NumberFormatException e) {
-            log.warn("Error parsing flow idle timeout, " +
-            		 "using default of {} seconds",
-                     FLOWMOD_DEFAULT_IDLE_TIMEOUT);
-        }
-        try {
-            String hardTimeout = configOptions.get("hardtimeout");
-            if (hardTimeout != null) {
-                FLOWMOD_DEFAULT_HARD_TIMEOUT = Short.parseShort(hardTimeout);
-            }
-        } catch (NumberFormatException e) {
-            log.warn("Error parsing flow hard timeout, " +
-            		 "using default of {} seconds",
-                     FLOWMOD_DEFAULT_HARD_TIMEOUT);
-        }
-        log.debug("FlowMod idle timeout set to {} seconds", 
-                  FLOWMOD_DEFAULT_IDLE_TIMEOUT);
-        log.debug("FlowMod hard timeout set to {} seconds", 
-                  FLOWMOD_DEFAULT_HARD_TIMEOUT);
     }
 }
