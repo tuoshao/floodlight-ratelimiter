@@ -148,7 +148,7 @@ public class RateLimiterController extends Forwarding {
 	}*/ 
 	
 	private boolean processPacket(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx){
-        log.warn(sw.toString());
+        log.warn("process packet at " + sw.toString());
 
         IDevice dstDevice =
                 IDeviceService.fcStore.
@@ -164,15 +164,7 @@ public class RateLimiterController extends Forwarding {
 
 		//TODO match packet in the ruleStorage and decide what to do next.
 		Set<Policy> policies = matchPoliciesFromStorage(match);
-		if(!policies.isEmpty()){
-			if(installed < 3){
-				installed ++;
-			}
-			if(installed == 3){
-		        installPolicyToSwitch(policies, sw);
-		        installed ++;
-			}
-		}
+
 
 		if(policies.isEmpty()) return false;
 
@@ -190,19 +182,37 @@ public class RateLimiterController extends Forwarding {
             }
         }
 
-        Route r1 = routingEngine.getRoute(sw.getId(), pi.getInPort(), s2.getId(), (short)2, 0);
-        Route r2 = routingEngine.getRoute(s2next.getNodeId(), s2next.getPortId(), dstsw.getSwitchDPID(), (short) dstsw.getPort(), 0);
-        RouteId rid = new RouteId(sw.getId(), dstsw.getSwitchDPID(), 1);
-        List<NodePortTuple> routelist = new ArrayList<NodePortTuple>();
-        routelist.addAll(r1.getPath());
-        routelist.addAll(r2.getPath());
-        Route route = new Route(rid, routelist);
 
+        Route r1_temp = routingEngine.getRoute(sw.getId(), pi.getInPort(), s2.getId(), (short)2, 0);
+        Route r1 = new Route(r1_temp.getId(), r1_temp.getPath());
+        int r1len = r1.getPath().size();
+        r1.getPath().remove(r1len-1);
+        short s2inport = r1.getPath().get(r1len-2).getPortId();
+        r1.getPath().remove(r1len-2);
+
+        if(!policies.isEmpty()){
+            if(installed < 2){
+                installed ++;
+            }
+            if(installed == 2){
+                for (Policy p : policies) {
+                    OFMatch s2match = match.clone();
+                    s2match.setInputPort(s2inport);
+                    installMatchedFLowToSwitch(s2match, s2, p);
+                }
+                installed ++;
+            }
+        }
+
+        Route r2 = routingEngine.getRoute(s2next.getNodeId(), s2next.getPortId(), dstsw.getSwitchDPID(), (short) dstsw.getPort(), 0);
+        log.warn(r2.getPath().toString());
         long cookie = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
-        pushRoute(route, match, match.getWildcards(), pi, sw.getId(), cookie,
+        pushRoute(r1, match, match.getWildcards(), pi, sw.getId(), cookie,
+                cntx, false, false, OFFlowMod.OFPFC_ADD);
+        pushRoute(r2, match, match.getWildcards(), pi, sw.getId(), cookie,
                 cntx, false, false, OFFlowMod.OFPFC_ADD);
 
-/*
+    /*
 		IDevice srcDevice =
                 IDeviceService.fcStore.
                     get(cntx, IDeviceService.CONTEXT_SRC_DEVICE);
@@ -337,47 +347,39 @@ public class RateLimiterController extends Forwarding {
 		return policiesToDelete;
 	}
 	
-	private void installPolicyToSwitch(Set<Policy> policies, IOFSwitch sw){
+	private void installMatchedFLowToSwitch(OFMatch flow, IOFSwitch sw, Policy p){
 		log.warn("Trying to install policies!!!!!!!!!!!!!!!!");
-		Iterator itp = policies.iterator();
-		while(itp.hasNext()){
-			Policy p = (Policy) itp.next();
-	        queueCreaterService.createQueue(sw, p.port, p.queue, p.speed);
-			Set<OFMatch> rules = p.getRules();
-			Iterator it = rules.iterator();
-			while(it.hasNext()){
-				OFMatch rule = (OFMatch) it.next();
-				OFFlowMod fm = new OFFlowMod();
-				fm.setType(OFType.FLOW_MOD);
-				
-				List<OFAction> actions = new ArrayList<OFAction>();
-				
-				//add the queuing action
-				OFActionEnqueue enqueue = new OFActionEnqueue();
-				enqueue.setLength((short)OFActionEnqueue.MINIMUM_LENGTH);
-				enqueue.setType(OFActionType.OPAQUE_ENQUEUE); // I think this happens anyway in the constructor
-				enqueue.setPort(p.port);
-				enqueue.setQueueId(p.queue);
-				actions.add((OFAction) enqueue);
-				
-				fm.setMatch(rule)
-					.setActions(actions)
-					.setIdleTimeout((short) 0)  // infinite
-					.setHardTimeout((short) 0)  // infinite
-					.setBufferId(OFPacketOut.BUFFER_ID_NONE)
-					.setFlags((short) 0)
-					.setOutPort(OFPort.OFPP_NONE.getValue())
-					.setPriority(p.priority)
-					.setLengthU(OFFlowMod.MINIMUM_LENGTH+OFActionEnqueue.MINIMUM_LENGTH);
-				try {
-		            sw.write(fm, null);
-		            sw.flush();
-		        } catch (IOException e) {
-		            log.error("Tried to write OFFlowMod to {} but failed: {}", 
-		                    HexString.toHexString(sw.getId()), e.getMessage());
-		        }		
-			}
-		}	
+
+        OFFlowMod fm = new OFFlowMod();
+        fm.setType(OFType.FLOW_MOD);
+
+        List<OFAction> actions = new ArrayList<OFAction>();
+
+        //add the queuing action
+        OFActionEnqueue enqueue = new OFActionEnqueue();
+        enqueue.setLength((short)OFActionEnqueue.MINIMUM_LENGTH);
+        enqueue.setType(OFActionType.OPAQUE_ENQUEUE); // I think this happens anyway in the constructor
+        enqueue.setPort(p.port);
+        enqueue.setQueueId(p.queue);
+        actions.add((OFAction) enqueue);
+
+        fm.setMatch(flow)
+            .setActions(actions)
+            .setIdleTimeout((short) 0)  // infinite
+            .setHardTimeout((short) 0)  // infinite
+            .setBufferId(OFPacketOut.BUFFER_ID_NONE)
+            .setFlags((short) 0)
+            .setOutPort(OFPort.OFPP_NONE.getValue())
+            .setPriority(p.priority)
+            .setLengthU(OFFlowMod.MINIMUM_LENGTH+OFActionEnqueue.MINIMUM_LENGTH);
+        try {
+            sw.write(fm, null);
+            sw.flush();
+        } catch (IOException e) {
+            log.error("Tried to write OFFlowMod to {} but failed: {}",
+                    HexString.toHexString(sw.getId()), e.getMessage());
+        }
+
 				
 	}
 
@@ -409,20 +411,25 @@ public class RateLimiterController extends Forwarding {
 	}
 
 
-	public Command processPacketInMessage(IOFSwitch sw, OFPacketIn pi, IRoutingDecision decision,
+	/*public Command processPacketInMessage(IOFSwitch sw, OFPacketIn pi, IRoutingDecision decision,
             FloodlightContext cntx) {
-    	/* First check if the packet match the existing rules. 
+    	*//* First check if the packet match the existing rules.
     	 * If it does then process it, otherwise forward it as default packet
-    	 */
-        Map<Long, IOFSwitch> switches = floodlightProvider.getSwitches();
+    	 *//*
         if(processPacket(sw, pi, cntx)) {
             return Command.CONTINUE;
         }
 
         return super.processPacketInMessage(sw, pi, decision, cntx);
+    }*/
+
+    @Override
+    protected void doForwardFlow(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx, boolean requestFlowRemovedNotifn) {
+        if (processPacket(sw, pi, cntx)) return;
+        else super.doForwardFlow(sw, pi, cntx, requestFlowRemovedNotifn);
     }
-	
-	private Map<SwitchPair, Integer> initAllPairDistance() {
+
+    private Map<SwitchPair, Integer> initAllPairDistance() {
 		// TODO Auto-generated method stub
 		Map<SwitchPair, Integer> distances = new HashMap<SwitchPair, Integer>();
         Map<Long, IOFSwitch> switches = floodlightProvider.getSwitches();
@@ -456,18 +463,17 @@ public class RateLimiterController extends Forwarding {
     	this.distance = initAllPairDistance();
     	
         OFMatch temp_match = new OFMatch();
-        temp_match.setWildcards(~OFMatch.OFPFW_NW_DST_MASK);
+        temp_match.setWildcards(~(OFMatch.OFPFW_NW_DST_MASK | OFMatch.OFPFW_NW_SRC_MASK));
         temp_match.setNetworkDestination(167772164);
-        temp_match.setNetworkDestination(167772161);
+        temp_match.setNetworkSource(167772161);
+
         Set<OFMatch> temp_policyset = new HashSet<OFMatch>();
         temp_policyset.add(temp_match);
-        Policy temp_policy = new Policy(temp_policyset, (short) 1);
-        temp_policy.setPort((short)1);
+        Policy temp_policy = new Policy(temp_policyset, (short)1);
+        temp_policy.setPort((short)2);
         temp_policy.setQueue(1);
         policyStorage.put(Integer.valueOf(temp_policy.hashCode()), temp_policy);
 
-        
-        
         // read our config options
         Map<String, String> configOptions = context.getConfigParams(this);
         try {
@@ -494,6 +500,5 @@ public class RateLimiterController extends Forwarding {
                   FLOWMOD_DEFAULT_IDLE_TIMEOUT);
         log.debug("FlowMod hard timeout set to {} seconds", 
                   FLOWMOD_DEFAULT_HARD_TIMEOUT);
->>>>>>> ecd3b2b7be41675e8e2d521dc3075b4f574d80c3
     }
 }
