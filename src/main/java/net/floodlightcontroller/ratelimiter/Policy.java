@@ -15,8 +15,10 @@ public class Policy {
 	int flowcount;
 	short speed;
 	long dpid;
-	int port;
+	short port;
+	int queue;
 	int avgdistance;
+	short priority;
 
 	public Policy(Set<OFMatch> r){
 		rules = r;
@@ -25,13 +27,18 @@ public class Policy {
 		speed = 0;
 		//dpid and port are initialized with max value, meaning it's uninstalled
 		dpid = Long.MAX_VALUE;
-		port = Integer.MAX_VALUE;
+		port = Short.MAX_VALUE;
 		avgdistance = 0;
 		policyid = this.hashCode();
+		priority = 32767;
 	}
 	
 	public void addFlow(Flow flow){
 		flows.add(flow);
+	}
+	
+	public Set<OFMatch> getRules(){
+		return this.rules;
 	}
 	
 	public int hashCode(){
