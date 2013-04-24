@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -36,6 +37,7 @@ import net.floodlightcontroller.core.module.FloodlightModuleContext;
 import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
 import net.floodlightcontroller.core.module.IFloodlightService;
+import net.floodlightcontroller.qos.IQoSService;
 
 public class QueueCreaterController implements IOFSwitchListener, 
 IOFMessageListener, IFloodlightModule, IQueueCreaterService {
@@ -73,13 +75,22 @@ IOFMessageListener, IFloodlightModule, IQueueCreaterService {
 	@Override
 	public Collection<Class<? extends IFloodlightService>> getModuleServices() {
 		// TODO Auto-generated method stub
-		return null;
+		Collection<Class<? extends IFloodlightService>> l = 
+                new ArrayList<Class<? extends IFloodlightService>>();
+        l.add(IQueueCreaterService.class);
+        return l;
 	}
 
 	@Override
 	public Map<Class<? extends IFloodlightService>, IFloodlightService> getServiceImpls() {
 		// TODO Auto-generated method stub
-		return null;
+		Map<Class<? extends IFloodlightService>,
+        IFloodlightService> m = 
+        new HashMap<Class<? extends IFloodlightService>,
+        IFloodlightService>();
+        // We are the class that implements the service
+        m.put(IQueueCreaterService.class, this);
+        return m;
 	}
 
 	@Override
@@ -288,6 +299,8 @@ IOFMessageListener, IFloodlightModule, IQueueCreaterService {
     }
 
     public void createQueue(IOFSwitch sw, short portNumber, int queueId, short rate) {
+    	logger.warn(String.valueOf(portNumber) + " " + String.valueOf(queueId) + " " + String.valueOf(rate) + 
+    			" queue installed!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
         OFQueueProp prop = new OFQueueProp();
         prop.setType(OFQueuePropType.OFPQT_MAX_RATE);
         prop.setRate(rate);
@@ -326,11 +339,11 @@ IOFMessageListener, IFloodlightModule, IQueueCreaterService {
 //        getAllQueueConfigs(sw);
 //        sendBarrier(sw);
 //
-        createQueue(sw, (short) 1, 1, (short) 70);
+//        createQueue(sw, (short) 1, 1, (short) 70);
 //		createQueue(sw, (short) 2, 30, (short) 70);
 //        sendBarrier(sw);
 //
-        getAllQueueConfigs(sw);
+//        getAllQueueConfigs(sw);
 //		sendBarrier(sw);
 	}
 

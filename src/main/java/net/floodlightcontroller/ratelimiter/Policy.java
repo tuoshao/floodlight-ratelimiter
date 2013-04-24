@@ -20,11 +20,11 @@ public class Policy {
 	int avgdistance;
 	short priority;
 
-	public Policy(Set<OFMatch> r){
+	public Policy(Set<OFMatch> r, short speed){
 		rules = r;
 		flows = new HashSet<Flow>();
 		flowcount = 0;
-		speed = 0;
+		this.speed = speed;
 		//dpid and port are initialized with max value, meaning it's uninstalled
 		dpid = Long.MAX_VALUE;
 		port = Short.MAX_VALUE;
@@ -49,5 +49,15 @@ public class Policy {
 			result = result*rule.hashCode();
 		}
 		return result;
+	}
+
+	public void setQueue(int q) {
+		// TODO Auto-generated method stub
+		this.queue = q;
+	}
+
+	public void setPort(short p) {
+		// TODO Auto-generated method stub
+		this.port = p;
 	}
 }
