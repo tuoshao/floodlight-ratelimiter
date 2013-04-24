@@ -148,8 +148,6 @@ public class RateLimiterController extends Forwarding {
 	}*/ 
 	
 	private boolean processPacket(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx){
-        log.warn("process packet at " + sw.toString());
-
         IDevice dstDevice =
                 IDeviceService.fcStore.
                         get(cntx, IDeviceService.CONTEXT_DST_DEVICE);
@@ -185,57 +183,27 @@ public class RateLimiterController extends Forwarding {
 
         Route r1_temp = routingEngine.getRoute(sw.getId(), pi.getInPort(), s2.getId(), (short)2, 0);
         Route r1 = new Route(r1_temp.getId(), r1_temp.getPath());
+
         int r1len = r1.getPath().size();
         r1.getPath().remove(r1len-1);
         short s2inport = r1.getPath().get(r1len-2).getPortId();
         r1.getPath().remove(r1len-2);
 
-        if(!policies.isEmpty()){
-            if(installed < 2){
-                installed ++;
-            }
-            if(installed == 2){
-                for (Policy p : policies) {
-                    OFMatch s2match = match.clone();
-                    s2match.setInputPort(s2inport);
-                    installMatchedFLowToSwitch(s2match, s2, p);
-                }
-                installed ++;
-            }
-        }
-
         Route r2 = routingEngine.getRoute(s2next.getNodeId(), s2next.getPortId(), dstsw.getSwitchDPID(), (short) dstsw.getPort(), 0);
-        log.warn(r2.getPath().toString());
-        long cookie = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
-        pushRoute(r1, match, match.getWildcards(), pi, sw.getId(), cookie,
-                cntx, false, false, OFFlowMod.OFPFC_ADD);
-        pushRoute(r2, match, match.getWildcards(), pi, sw.getId(), cookie,
-                cntx, false, false, OFFlowMod.OFPFC_ADD);
+        long cookie1 = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
+        long cookie2 = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
+        pushRoute(r1, match, match.getWildcards(), pi, sw.getId(), cookie1,
+                    cntx, false, true, OFFlowMod.OFPFC_ADD);
+            pushRoute(r2, match, match.getWildcards(), pi, sw.getId(), cookie2,
+                    cntx, false, true, OFFlowMod.OFPFC_ADD);
 
-    /*
-		IDevice srcDevice =
-                IDeviceService.fcStore.
-                    get(cntx, IDeviceService.CONTEXT_SRC_DEVICE);
-		
-		IDevice dstDevice = 
-                IDeviceService.fcStore.
-                    get(cntx, IDeviceService.CONTEXT_DST_DEVICE);
-        SwitchPort[] srcDaps = srcDevice.getAttachmentPoints();
-        SwitchPort[] dstDaps = dstDevice.getAttachmentPoints();
-        SwitchPort srcSwitchPort = srcDaps[0];
-        SwitchPort dstSwitchPort = dstDaps[0];
-        NodePortTuple srcNodePort = new NodePortTuple(srcSwitchPort.getSwitchDPID(),srcSwitchPort.getPort());
-        NodePortTuple dstNodePort = new NodePortTuple(dstSwitchPort.getSwitchDPID(),dstSwitchPort.getPort());
-
-		
-		Flow newflow = new Flow(match, srcNodePort, dstNodePort);
-		//flowStorage.put(Integer.valueOf(match.hashCode()), newflow);
-		Set<Policy> policiesToDelete = processFlowWithPolicy(newflow, policies);
-		if(!policiesToDelete.isEmpty()){
-			deletePolicyFromStorage(policiesToDelete);
-		}
-		
-*/
+        if(!policies.isEmpty()){
+                for (Policy p : policies) {
+                        OFMatch s2match = match.clone();
+                        s2match.setInputPort(s2inport);
+                        installMatchedFLowToSwitch(s2match, switches.get(Long.valueOf(2)), p);
+                }
+        }
 		return true;
 		
 	}
@@ -349,6 +317,7 @@ public class RateLimiterController extends Forwarding {
 	
 	private void installMatchedFLowToSwitch(OFMatch flow, IOFSwitch sw, Policy p){
 		log.warn("Trying to install policies!!!!!!!!!!!!!!!!");
+        queueCreaterService.createQueue(sw, p.port, p.queue, p.speed);
 
         OFFlowMod fm = new OFFlowMod();
         fm.setType(OFType.FLOW_MOD);
@@ -365,8 +334,8 @@ public class RateLimiterController extends Forwarding {
 
         fm.setMatch(flow)
             .setActions(actions)
-            .setIdleTimeout((short) 0)  // infinite
-            .setHardTimeout((short) 0)  // infinite
+            .setIdleTimeout((short)5)  // infinite
+            .setHardTimeout((short)0)  // infinite
             .setBufferId(OFPacketOut.BUFFER_ID_NONE)
             .setFlags((short) 0)
             .setOutPort(OFPort.OFPP_NONE.getValue())
