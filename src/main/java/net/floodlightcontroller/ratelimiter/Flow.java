@@ -19,18 +19,22 @@ public class Flow {
 	NodePortTuple src;
 	NodePortTuple dst;
 	
-	List<Integer> policies;
+	List<Policy> policies;
 	
 	public Flow(OFMatch m, NodePortTuple srcNodePort, NodePortTuple dstNodePort){
 		match = m;
-		policies = new ArrayList<Integer>();
+		policies = new ArrayList<Policy>();
 		src = srcNodePort;
 		dst = dstNodePort;
 		flowid = this.hashCode();
 	}
 	
-	public void addPolicy(int id){
-		this.policies.add(Integer.valueOf(id));
+	public List<Policy> getPoliy(){
+		return this.policies;
+	}
+	
+	public void addPolicy(Policy policy){
+		this.policies.add(policy);
 	}
 	
 	

@@ -1,5 +1,6 @@
 package net.floodlightcontroller.ratelimiter;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -17,6 +18,13 @@ import net.floodlightcontroller.routing.*;
 import org.openflow.protocol.OFFlowMod;
 import org.openflow.protocol.OFMatch;
 import org.openflow.protocol.OFPacketIn;
+import org.openflow.protocol.OFPacketOut;
+import org.openflow.protocol.OFPort;
+import org.openflow.protocol.OFType;
+import org.openflow.protocol.action.OFAction;
+import org.openflow.protocol.action.OFActionEnqueue;
+import org.openflow.protocol.action.OFActionType;
+import org.openflow.util.HexString;
 
 import net.floodlightcontroller.core.FloodlightContext;
 import net.floodlightcontroller.core.IFloodlightProviderService;
@@ -36,7 +44,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class RateLimiterController extends Forwarding {
-	private Map<Integer, Rule> ruleStorage;
 	private Map<Integer, Policy> policyStorage;
 	private Map<Integer, Flow> flowStorage;
 	private Map<Integer, HashSet<Policy>> subSets;
@@ -48,44 +55,60 @@ public class RateLimiterController extends Forwarding {
         log.warn("flow: " + flow.toString() + " rule: " + rule.toString());
 
 		int rulewc = rule.getWildcards();
-		if(!(((rulewc & OFMatch.OFPFW_IN_PORT) == OFMatch.OFPFW_IN_PORT) ||
+		if(!(((rulewc & OFMatch.OFPFW_IN_PORT) == OFMatch.OFPFW_IN_PORT) || 
 				rule.getInputPort() == flow.getInputPort()))
 			return false;
-		if(!(((rulewc & OFMatch.OFPFW_DL_VLAN) == OFMatch.OFPFW_DL_VLAN) ||
+
+		if(!(((rulewc & OFMatch.OFPFW_DL_VLAN) == OFMatch.OFPFW_DL_VLAN) || 
 				rule.getDataLayerVirtualLan() == flow.getDataLayerVirtualLan()))
 			return false;
-		if(!(((rulewc & OFMatch.OFPFW_DL_SRC) == OFMatch.OFPFW_DL_SRC) ||
+
+		if(!(((rulewc & OFMatch.OFPFW_DL_SRC) == OFMatch.OFPFW_DL_SRC) || 
 				Arrays.equals(rule.getDataLayerSource(), flow.getDataLayerSource())))
 			return false;
-		if(!(((rulewc & OFMatch.OFPFW_DL_DST) == OFMatch.OFPFW_DL_DST) ||
+
+		if(!(((rulewc & OFMatch.OFPFW_DL_DST) == OFMatch.OFPFW_DL_DST) || 
 				Arrays.equals(rule.getDataLayerDestination(), flow.getDataLayerDestination())))
 			return false;
-		if(!(((rulewc & OFMatch.OFPFW_DL_TYPE) == OFMatch.OFPFW_DL_TYPE) ||
+
+		if(!(((rulewc & OFMatch.OFPFW_DL_TYPE) == OFMatch.OFPFW_DL_TYPE) || 
 				rule.getDataLayerType() == flow.getDataLayerType()))
 			return false;
-		if(!(((rulewc & OFMatch.OFPFW_NW_PROTO) == OFMatch.OFPFW_NW_PROTO) ||
+
+		if(!(((rulewc & OFMatch.OFPFW_NW_PROTO) == OFMatch.OFPFW_NW_PROTO) || 
 				rule.getNetworkProtocol() == flow.getNetworkProtocol()))
 			return false;
-		if(!(((rulewc & OFMatch.OFPFW_TP_SRC) == OFMatch.OFPFW_TP_SRC) ||
+
+		if(!(((rulewc & OFMatch.OFPFW_TP_SRC) == OFMatch.OFPFW_TP_SRC) || 
 				rule.getTransportSource() == flow.getTransportSource()))
 			return false;
-		if(!(((rulewc & OFMatch.OFPFW_TP_DST) == OFMatch.OFPFW_TP_DST) ||
+
+		if(!(((rulewc & OFMatch.OFPFW_TP_DST) == OFMatch.OFPFW_TP_DST) || 
 				rule.getTransportDestination() == flow.getTransportDestination()))
 			return false;
 		
 		int ruleSrcMask = rule.getNetworkSourceMaskLen();
 		int matchSrcMask = flow.getNetworkSourceMaskLen();
+		log.warn(String.valueOf(ruleSrcMask));
+		log.warn(String.valueOf(matchSrcMask));
+
+		log.warn(String.valueOf((0xffffffff << (3))));
+		log.warn(String.valueOf((1 << (33))));
+
+		
 		if(!(ruleSrcMask <= matchSrcMask &&
-				(rule.getNetworkSource() & ((ruleSrcMask == 0)? 0:0xffffffff << ruleSrcMask)) ==
-				(flow.getNetworkSource() & ((ruleSrcMask == 0)? 0:0xffffffff << ruleSrcMask))))
+				(rule.getNetworkSource() & ((ruleSrcMask==0)? 0:0xffffffff << (32-ruleSrcMask))) ==
+				(flow.getNetworkSource() & ((ruleSrcMask==0)? 0:0xffffffff << (32-ruleSrcMask)))))
 			return false;
+		log.warn("match src");
 		int ruleDstMask = rule.getNetworkDestinationMaskLen();
 		int matchDstMask = flow.getNetworkDestinationMaskLen();
 		if(!(ruleDstMask <= matchDstMask &&
-				(rule.getNetworkDestination() & ((ruleDstMask == 0)? 0:0xffffffff << ruleDstMask)) ==
-				(flow.getNetworkDestination() & ((ruleDstMask == 0)? 0:0xffffffff << ruleDstMask))))
+				(rule.getNetworkDestination() & ((ruleDstMask==0)? 0:0xffffffff << (32-ruleDstMask))) ==
+				(flow.getNetworkDestination() & ((ruleDstMask==0)? 0:0xffffffff << (32-ruleDstMask)))))
 			return false;
-		
+		log.warn("match dst");
+
 		return true;
 	}
 
@@ -263,7 +286,7 @@ public class RateLimiterController extends Forwarding {
 				// TODO We could apply some strategies here to decide which policy to stay in the same switch
 				Policy p = policySameSwitch.get(0);
 				updatePolicyWithFlow(flow, p);
-				flow.addPolicy(p.policyid);
+				flow.addPolicy(p);
 				int i = 1;
 				int size = policySameSwitch.size();
 				while(i<size){
@@ -273,7 +296,7 @@ public class RateLimiterController extends Forwarding {
 						policiesToDelete.add(p);
 						deleteFlowFromPolicy(p, flow);
 					} else {
-						flow.addPolicy(p.policyid);
+						flow.addPolicy(p);
 					}
 					i++;
 				}
@@ -283,23 +306,66 @@ public class RateLimiterController extends Forwarding {
 				int size = policySameSwitch.size();
 				while(i<size){
 					Policy p = policySameSwitch.get(i);
-					if(fineNewSwitch(p, route) == false){
+					if(findNewSwitch(p, route) == false){
 						policiesToDelete.add(p);
 					}else{
 						updatePolicyWithFlow(flow, p);
-						flow.addPolicy(p.policyid);
+						flow.addPolicy(p);
 					}
 					i++;
 				}
 			}
 		}
+		if(!flow.getPoliy().isEmpty()) {
+			flowStorage.put(flow.hashCode(), flow);
+		}
 		// we can also implement a optimization here to determine
 		// whether the switches are affecting the route of flow too much
 		return policiesToDelete;
 	}
+	
+	private void installPolicyToSwitch(Policy p, IOFSwitch sw){
+		Set<OFMatch> rules = p.getRules();
+		Iterator it = rules.iterator();
+		while(it.hasNext()){
+			OFMatch rule = (OFMatch) it.next();
+			OFFlowMod fm = new OFFlowMod();
+			fm.setType(OFType.FLOW_MOD);
+			
+			List<OFAction> actions = new ArrayList<OFAction>();
+			
+			//add the queuing action
+			OFActionEnqueue enqueue = new OFActionEnqueue();
+			enqueue.setLength((short) 0xffff);
+			enqueue.setType(OFActionType.OPAQUE_ENQUEUE); // I think this happens anyway in the constructor
+			enqueue.setPort(p.port);
+			enqueue.setQueueId(p.queue);
+			actions.add((OFAction) enqueue);
+			
+			fm.setMatch(rule)
+				.setActions(actions)
+				.setIdleTimeout((short) 0)  // infinite
+				.setHardTimeout((short) 0)  // infinite
+				.setBufferId(OFPacketOut.BUFFER_ID_NONE)
+				.setFlags((short) 0)
+				.setOutPort(OFPort.OFPP_NONE.getValue())
+				.setPriority(p.priority)
+				.setLengthU((short)OFFlowMod.MINIMUM_LENGTH + OFActionEnqueue.MINIMUM_LENGTH);
+			try {
+	            sw.write(fm, null);
+	            sw.flush();
+	        } catch (IOException e) {
+	            log.error("Tried to write OFFlowMod to {} but failed: {}", 
+	                    HexString.toHexString(sw.getId()), e.getMessage());
+	        }		}
+		
+				
+	}
 
-	private boolean fineNewSwitch(Policy p, Route route) {
+	private boolean findNewSwitch(Policy p, Route route) {
 		// TODO Auto-generated method stub
+		List<NodePortTuple> path = route.getPath();
+		
 		return false;
 	}
 
@@ -364,8 +430,6 @@ public class RateLimiterController extends Forwarding {
         this.topology = context.getServiceImpl(ITopologyService.class);
         this.counterStore = context.getServiceImpl(ICounterStoreService.class);
         this.linkService = context.getServiceImpl(ILinkDiscoveryService.class);
-
-        this.ruleStorage = new HashMap<Integer, Rule>();
         this.policyStorage = new HashMap<Integer, Policy>();
     	this.flowStorage = new HashMap<Integer, Flow>();
     	
