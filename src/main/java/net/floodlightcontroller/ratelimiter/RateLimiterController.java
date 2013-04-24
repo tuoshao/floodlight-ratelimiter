@@ -40,6 +40,7 @@ import net.floodlightcontroller.routing.IRoutingService;
 import net.floodlightcontroller.routing.Route;
 import net.floodlightcontroller.topology.ITopologyService;
 import net.floodlightcontroller.topology.NodePortTuple;
+import net.floodlightcontroller.benchmarkcontroller.IQueueCreaterService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,6 +50,8 @@ public class RateLimiterController extends Forwarding {
 	private Map<Integer, HashSet<Policy>> subSets;
 	private Map<SwitchPair, Integer> distance;
     private static Logger log = LoggerFactory.getLogger(RateLimiterController.class);
+    private int installed = 0;
+    protected IQueueCreaterService queueCreaterService;
 	
 	public boolean flowBelongsToRule(OFMatch flow, OFMatch rule){
         log.warn("flow: " + flow.toString() + " rule: " + rule.toString());
@@ -151,6 +154,8 @@ public class RateLimiterController extends Forwarding {
 	
 	private boolean processPacket(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx){
         Map<Long, IOFSwitch> switches = floodlightProvider.getSwitches();
+        
+
 
         log.warn(switches.toString());
 
@@ -158,6 +163,16 @@ public class RateLimiterController extends Forwarding {
 		match.loadFromPacket(pi.getPacketData(), pi.getInPort());
 		//TODO match packet in the ruleStorage and decide what to do next.
 		Set<Policy> policies = matchPoliciesFromStorage(match);
+		if(!policies.isEmpty()){
+			if(installed < 3){
+				installed ++;
+			}
+			if(installed == 3){
+		        installPolicyToSwitch(policies, sw);
+		        installed ++;
+			}
+		}
+
 		if(policies.isEmpty()) return false;
 /*
 		IDevice srcDevice =
@@ -294,41 +309,47 @@ public class RateLimiterController extends Forwarding {
 		return policiesToDelete;
 	}
 	
-	private void installPolicyToSwitch(Policy p, IOFSwitch sw){
-		Set<OFMatch> rules = p.getRules();
-		Iterator it = rules.iterator();
-		while(it.hasNext()){
-			OFMatch rule = (OFMatch) it.next();
-			OFFlowMod fm = new OFFlowMod();
-			fm.setType(OFType.FLOW_MOD);
-			
-			List<OFAction> actions = new ArrayList<OFAction>();
-			
-			//add the queuing action
-			OFActionEnqueue enqueue = new OFActionEnqueue();
-			enqueue.setLength((short) 0xffff);
-			enqueue.setType(OFActionType.OPAQUE_ENQUEUE); // I think this happens anyway in the constructor
-			enqueue.setPort(p.port);
-			enqueue.setQueueId(p.queue);
-			actions.add((OFAction) enqueue);
-			
-			fm.setMatch(rule)
-				.setActions(actions)
-				.setIdleTimeout((short) 0)  // infinite
-				.setHardTimeout((short) 0)  // infinite
-				.setBufferId(OFPacketOut.BUFFER_ID_NONE)
-				.setFlags((short) 0)
-				.setOutPort(OFPort.OFPP_NONE.getValue())
-				.setPriority(p.priority)
-				.setLengthU((short)OFFlowMod.MINIMUM_LENGTH + OFActionEnqueue.MINIMUM_LENGTH);
-			try {
-	            sw.write(fm, null);
-	            sw.flush();
-	        } catch (IOException e) {
-	            log.error("Tried to write OFFlowMod to {} but failed: {}", 
-	                    HexString.toHexString(sw.getId()), e.getMessage());
-	        }		}
-		
+	private void installPolicyToSwitch(Set<Policy> policies, IOFSwitch sw){
+		log.warn("Trying to install policies!!!!!!!!!!!!!!!!");
+		Iterator itp = policies.iterator();
+		while(itp.hasNext()){
+			Policy p = (Policy) itp.next();
+	        queueCreaterService.createQueue(sw, p.port, p.queue, p.speed);
+			Set<OFMatch> rules = p.getRules();
+			Iterator it = rules.iterator();
+			while(it.hasNext()){
+				OFMatch rule = (OFMatch) it.next();
+				OFFlowMod fm = new OFFlowMod();
+				fm.setType(OFType.FLOW_MOD);
+				
+				List<OFAction> actions = new ArrayList<OFAction>();
+				
+				//add the queuing action
+				OFActionEnqueue enqueue = new OFActionEnqueue();
+				enqueue.setLength((short)OFActionEnqueue.MINIMUM_LENGTH);
+				enqueue.setType(OFActionType.OPAQUE_ENQUEUE); // I think this happens anyway in the constructor
+				enqueue.setPort(p.port);
+				enqueue.setQueueId(p.queue);
+				actions.add((OFAction) enqueue);
+				
+				fm.setMatch(rule)
+					.setActions(actions)
+					.setIdleTimeout((short) 0)  // infinite
+					.setHardTimeout((short) 0)  // infinite
+					.setBufferId(OFPacketOut.BUFFER_ID_NONE)
+					.setFlags((short) 0)
+					.setOutPort(OFPort.OFPP_NONE.getValue())
+					.setPriority(p.priority)
+					.setLengthU(OFFlowMod.MINIMUM_LENGTH+OFActionEnqueue.MINIMUM_LENGTH);
+				try {
+		            sw.write(fm, null);
+		            sw.flush();
+		        } catch (IOException e) {
+		            log.error("Tried to write OFFlowMod to {} but failed: {}", 
+		                    HexString.toHexString(sw.getId()), e.getMessage());
+		        }		
+			}
+		}	
 				
 	}
 
@@ -397,18 +418,25 @@ public class RateLimiterController extends Forwarding {
         this.routingEngine = context.getServiceImpl(IRoutingService.class);
         this.topology = context.getServiceImpl(ITopologyService.class);
         this.counterStore = context.getServiceImpl(ICounterStoreService.class);
+        this.queueCreaterService = context.getServiceImpl(IQueueCreaterService.class);
+        
         
         this.policyStorage = new HashMap<Integer, Policy>();
     	this.flowStorage = new HashMap<Integer, Flow>();
     	
     	this.distance = initAllPairDistance();
+    	
         OFMatch temp_match = new OFMatch();
-        temp_match.setNetworkDestination(167772164);
+        temp_match.setNetworkDestination(167772161);
+        temp_match.setWildcards(~OFMatch.OFPFW_NW_DST_MASK);
         Set<OFMatch> temp_policyset = new HashSet<OFMatch>();
         temp_policyset.add(temp_match);
-        Policy temp_policy = new Policy(temp_policyset);
+        Policy temp_policy = new Policy(temp_policyset, (short) 1);
+        temp_policy.setPort((short)1);
+        temp_policy.setQueue(1);
         policyStorage.put(Integer.valueOf(temp_policy.hashCode()), temp_policy);
-
+        
+        
         // read our config options
         Map<String, String> configOptions = context.getConfigParams(this);
         try {
