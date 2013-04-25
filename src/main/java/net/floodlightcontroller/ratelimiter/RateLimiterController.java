@@ -9,7 +9,6 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 
 import net.floodlightcontroller.core.util.AppCookie;
@@ -29,7 +28,6 @@ import org.openflow.util.HexString;
 import net.floodlightcontroller.core.FloodlightContext;
 import net.floodlightcontroller.core.IFloodlightProviderService;
 import net.floodlightcontroller.core.IOFSwitch;
-import net.floodlightcontroller.core.IListener.Command;
 import net.floodlightcontroller.core.module.FloodlightModuleContext;
 import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.counter.ICounterStoreService;
@@ -37,7 +35,6 @@ import net.floodlightcontroller.devicemanager.IDevice;
 import net.floodlightcontroller.devicemanager.IDeviceService;
 import net.floodlightcontroller.devicemanager.SwitchPort;
 import net.floodlightcontroller.forwarding.Forwarding;
-import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.topology.ITopologyService;
 import net.floodlightcontroller.topology.NodePortTuple;
 import net.floodlightcontroller.benchmarkcontroller.IQueueCreaterService;
@@ -48,11 +45,10 @@ public class RateLimiterController extends Forwarding {
 	private Map<Integer, Policy> policyStorage;
 	private Map<Integer, Flow> flowStorage;
 	private Map<Integer, HashSet<Policy>> subSets;
-	private Map<SwitchPair, Integer> distance;
     private static Logger log = LoggerFactory.getLogger(RateLimiterController.class);
     private ILinkDiscoveryService linkService;
-    private int installed = 0;
     protected IQueueCreaterService queueCreaterService;
+    private Map<Long, IOFSwitch> switches;
 
 	public boolean flowBelongsToRule(OFMatch flow, OFMatch rule){
         log.warn("flow: " + flow.toString() + " rule: " + rule.toString());
@@ -132,21 +128,7 @@ public class RateLimiterController extends Forwarding {
 		}
 		return matchedPolicies;
 	}
-	
-	/*private Set<Policy> getPoliciesFromRules(Set<Rule> rules){
-		Set<Policy> matchedPolicies = new HashSet<Policy>();
-		Iterator it = rules.iterator();
-		while(it.hasNext()){
-			Rule rule = (Rule) it.next();
-			Iterator itRule = rule.policies.iterator();
-			while(itRule.hasNext()){
-				Integer policyHashCode = (Integer) itRule.next();
-				matchedPolicies.add(policyStorage.get(policyHashCode));
-			}
-		}
-		return matchedPolicies;
-	}*/ 
-	
+
 	private boolean processPacket(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx){
         IDevice dstDevice =
                 IDeviceService.fcStore.
@@ -157,56 +139,65 @@ public class RateLimiterController extends Forwarding {
             return false;
         }
 
+        SwitchPort[] dstDaps = dstDevice.getAttachmentPoints();
+        SwitchPort dstsw = dstDaps[0];
+
 		OFMatch match = new OFMatch();
 		match.loadFromPacket(pi.getPacketData(), pi.getInPort());
 
-		//TODO match packet in the ruleStorage and decide what to do next.
 		Set<Policy> policies = matchPoliciesFromStorage(match);
-
-
-		if(policies.isEmpty()) return false;
-
-        SwitchPort[] dstDaps = dstDevice.getAttachmentPoints();
-        SwitchPort dstsw = dstDaps[0];
-        Map<Long, IOFSwitch> switches = floodlightProvider.getSwitches();
-        IOFSwitch s2 = switches.get(Long.valueOf(2));
-        NodePortTuple s2tuple = new NodePortTuple(s2.getId(), Short.valueOf((short) 2));
-        Set<Link> s2links = linkService.getPortLinks().get(s2tuple);
-        NodePortTuple s2next = null;
-        for (Link l : s2links) {
-            if (l.getSrc() == s2.getId() && l.getSrcPort() == 2) {
-                s2next = new NodePortTuple(l.getDst(), l.getDstPort());
-                break;
-            }
+        if(policies.isEmpty()) {
+            return false;
         }
 
+        NodePortTuple srctuple = new NodePortTuple(sw.getId(), pi.getInPort());
+        NodePortTuple dsttuple = new NodePortTuple(dstsw.getSwitchDPID(), dstsw.getPort());
+        Flow flow = new Flow(match, srctuple, dsttuple);
 
-        Route r1_temp = routingEngine.getRoute(sw.getId(), pi.getInPort(), s2.getId(), (short)2, 0);
-        Route r1 = new Route(r1_temp.getId(), r1_temp.getPath());
-
-        int r1len = r1.getPath().size();
-        r1.getPath().remove(r1len-1);
-        short s2inport = r1.getPath().get(r1len-2).getPortId();
-        r1.getPath().remove(r1len-2);
-
-        Route r2 = routingEngine.getRoute(s2next.getNodeId(), s2next.getPortId(), dstsw.getSwitchDPID(), (short) dstsw.getPort(), 0);
-        long cookie1 = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
-        long cookie2 = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
-        pushRoute(r1, match, match.getWildcards(), pi, sw.getId(), cookie1,
-                    cntx, false, true, OFFlowMod.OFPFC_ADD);
-            pushRoute(r2, match, match.getWildcards(), pi, sw.getId(), cookie2,
-                    cntx, false, true, OFFlowMod.OFPFC_ADD);
-
-        if(!policies.isEmpty()){
-                for (Policy p : policies) {
-                        OFMatch s2match = match.clone();
-                        s2match.setInputPort(s2inport);
-                        installMatchedFLowToSwitch(s2match, switches.get(Long.valueOf(2)), p);
+        for (Policy p : policies) {
+            if (findNewSwitch(p, flow)) {
+                for (Flow f : p.getFLows()) {
+                    //Delete all routes
+                    //Delete enqueue
+                    installMatchedFLowToSwitch(f.getQmatch(p), p, OFFlowMod.OFPFC_DELETE_STRICT);
+                    //Delete queue
+                    //Add new routes and enqueue
+                    addRouteAndEnqueue(sw, pi, cntx, p, f);
                 }
+            }
+
+            addRouteAndEnqueue(sw, pi, cntx, p, flow);
+            p.addFlow(flow);
         }
 		return true;
-		
 	}
+
+    private void addRouteAndEnqueue(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx, Policy p, Flow f) {
+        Route r1_temp = routingEngine.getRoute(sw.getId(), pi.getInPort(), p.getDpid(), p.getPort(), 0);
+        Route r1 = new Route(r1_temp.getId(), r1_temp.getPath());
+        int r1len = r1.getPath().size();
+        r1.getPath().remove(r1len-1);
+        short qsinport = r1.getPath().get(r1len-2).getPortId();
+        r1.getPath().remove(r1len-2);
+        Route r2 = routingEngine.getRoute(p.getNextDpid(), p.getNextPort(), f.getDst().getNodeId(), f.getDst().getPortId(), 0);
+
+        long cookie1 = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
+        long cookie2 = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
+        OFMatch match = f.getMatch();
+        pushRoute(r1, match, match.getWildcards(), pi, sw.getId(), cookie1,
+                cntx, false, true, OFFlowMod.OFPFC_MODIFY_STRICT);
+        pushRoute(r2, match, match.getWildcards(), pi, sw.getId(), cookie2,
+                cntx, false, true, OFFlowMod.OFPFC_MODIFY_STRICT);
+
+        OFMatch s2match = match.clone();
+        s2match.setInputPort(qsinport);
+        installMatchedFLowToSwitch(s2match, p, OFFlowMod.OFPFC_MODIFY_STRICT);
+
+        f.addRoute(r1);
+        f.addRoute(r2);
+        f.addPolicy(p);
+        f.setQmatch(p, s2match);
+    }
 	
 	private void deletePolicyFromStorage(Set<Policy> policiesToDelete) {
 		// TODO Auto-generated method stub
@@ -233,11 +224,11 @@ public class RateLimiterController extends Forwarding {
     		ArrayList<Policy> policySameSwitch;
     		while(itl.hasNext()){
     			policySameSwitch = (ArrayList<Policy>) itl.next();
-    			if(policySameSwitch.get(0).dpid == p.dpid){
+    			if(policySameSwitch.get(0).getDpid() == p.getDpid()){
     				policySameSwitch.add(p);
     				inserted = true;
     			}
-    			if(policySameSwitch.get(0).dpid < p.dpid){
+    			if(policySameSwitch.get(0).getDpid() < p.getDpid()){
     				i++;
     				continue;
     			}
@@ -272,8 +263,7 @@ public class RateLimiterController extends Forwarding {
 		Iterator it = policySet.iterator();
 		while(it.hasNext()){
 			ArrayList<Policy> policySameSwitch = (ArrayList<Policy>) it.next();
-			
-			if(policySameSwitch.get(0).dpid != Long.MAX_VALUE){
+			if(policySameSwitch.get(0).getLink() != null){
 				// TODO We could apply some strategies here to decide which policy to stay in the same switch
 				Policy p = policySameSwitch.get(0);
 				updatePolicyWithFlow(flow, p);
@@ -283,7 +273,7 @@ public class RateLimiterController extends Forwarding {
 				while(i<size){
 					p = policySameSwitch.get(i);
 					updatePolicyWithFlow(flow, p);
-					if(findNewSwitch(p) == false){
+					if(findNewSwitch(p, flow) == false){
 						policiesToDelete.add(p);
 						deleteFlowFromPolicy(p, flow);
 					} else {
@@ -292,7 +282,8 @@ public class RateLimiterController extends Forwarding {
 					i++;
 				}
 			} else {
-				Route route = flow.getRoute();
+                Route[] routes = (Route[]) flow.getRoutes().toArray();
+				Route route = routes[0];
 				int i = 0;
 				int size = policySameSwitch.size();
 				while(i<size){
@@ -307,7 +298,7 @@ public class RateLimiterController extends Forwarding {
 				}
 			}
 		}
-		if(!flow.getPoliy().isEmpty()) {
+		if(!flow.getPolicies().isEmpty()) {
 			flowStorage.put(flow.hashCode(), flow);
 		}
 		// we can also implement a optimization here to determine
@@ -315,12 +306,15 @@ public class RateLimiterController extends Forwarding {
 		return policiesToDelete;
 	}
 	
-	private void installMatchedFLowToSwitch(OFMatch flow, IOFSwitch sw, Policy p){
-		log.warn("Trying to install policies!!!!!!!!!!!!!!!!");
-        queueCreaterService.createQueue(sw, p.port, p.queue, p.speed);
+	private void installMatchedFLowToSwitch(OFMatch flow, Policy p, short flowModCommand){
+        IOFSwitch sw = switches.get(p.getDpid());
+        if(flowModCommand != OFFlowMod.OFPFC_DELETE_STRICT) {
+            queueCreaterService.createQueue(sw, p.getPort(), p.queue, p.speed);
+        }
 
         OFFlowMod fm = new OFFlowMod();
         fm.setType(OFType.FLOW_MOD);
+
 
         List<OFAction> actions = new ArrayList<OFAction>();
 
@@ -328,14 +322,15 @@ public class RateLimiterController extends Forwarding {
         OFActionEnqueue enqueue = new OFActionEnqueue();
         enqueue.setLength((short)OFActionEnqueue.MINIMUM_LENGTH);
         enqueue.setType(OFActionType.OPAQUE_ENQUEUE); // I think this happens anyway in the constructor
-        enqueue.setPort(p.port);
+        enqueue.setPort(p.getPort());
         enqueue.setQueueId(p.queue);
         actions.add((OFAction) enqueue);
 
         fm.setMatch(flow)
+            .setCommand(flowModCommand)
             .setActions(actions)
             .setIdleTimeout((short)5)  // infinite
-            .setHardTimeout((short)0)  // infinite
+            .setHardTimeout((short) 0)  // infinite
             .setBufferId(OFPacketOut.BUFFER_ID_NONE)
             .setFlags((short) 0)
             .setOutPort(OFPort.OFPP_NONE.getValue())
@@ -355,7 +350,6 @@ public class RateLimiterController extends Forwarding {
 	private boolean findNewSwitch(Policy p, Route route) {
 		// TODO Auto-generated method stub
 		List<NodePortTuple> path = route.getPath();
-		
 		return false;
 	}
 
@@ -364,9 +358,34 @@ public class RateLimiterController extends Forwarding {
 		
 	}
 
-	private boolean findNewSwitch(Policy p) {
-		// TODO Auto-generated method stub
-		return false;
+	private boolean findNewSwitch(Policy p, Flow flow) {
+        if (flow.match.getNetworkSource() == 167772165) {
+            IOFSwitch s1 = switches.get((long) 1);
+            NodePortTuple s2tuple = new NodePortTuple(s1.getId(), (short) 2);
+            Set<Link> s2links = linkService.getPortLinks().get(s2tuple);
+            Link s2link = null;
+            for (Link l : s2links) {
+                if (l.getSrc() == s1.getId() && l.getSrcPort() == 2) {
+                    s2link = l;
+                    break;
+                }
+            }
+            p.setLink(s2link);
+            return true;
+        } else {
+            IOFSwitch s2 = switches.get((long) 2);
+            NodePortTuple s2tuple = new NodePortTuple(s2.getId(), (short) 2);
+            Set<Link> s2links = linkService.getPortLinks().get(s2tuple);
+            Link s2link = null;
+            for (Link l : s2links) {
+                if (l.getSrc() == s2.getId() && l.getSrcPort() == 2) {
+                    s2link = l;
+                    break;
+                }
+            }
+            p.setLink(s2link);
+            return false;
+        }
 	}
 
 	/**
@@ -379,43 +398,11 @@ public class RateLimiterController extends Forwarding {
 		
 	}
 
-
-	/*public Command processPacketInMessage(IOFSwitch sw, OFPacketIn pi, IRoutingDecision decision,
-            FloodlightContext cntx) {
-    	*//* First check if the packet match the existing rules.
-    	 * If it does then process it, otherwise forward it as default packet
-    	 *//*
-        if(processPacket(sw, pi, cntx)) {
-            return Command.CONTINUE;
-        }
-
-        return super.processPacketInMessage(sw, pi, decision, cntx);
-    }*/
-
     @Override
     protected void doForwardFlow(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx, boolean requestFlowRemovedNotifn) {
         if (processPacket(sw, pi, cntx)) return;
         else super.doForwardFlow(sw, pi, cntx, requestFlowRemovedNotifn);
     }
-
-    private Map<SwitchPair, Integer> initAllPairDistance() {
-		// TODO Auto-generated method stub
-		Map<SwitchPair, Integer> distances = new HashMap<SwitchPair, Integer>();
-        Map<Long, IOFSwitch> switches = floodlightProvider.getSwitches();
-		Iterator it1 = switches.keySet().iterator();
-		while(it1.hasNext()){
-			Long swId1 = (Long) it1.next();
-			Iterator it2 = switches.keySet().iterator();
-			while(it2.hasNext()){
-				Long swId2 = (Long) it2.next();
-				SwitchPair sp = new SwitchPair(swId1.longValue(), swId2.longValue());
-				if(!distances.containsKey(sp)){
-					distances.put(sp , routingEngine.getRoute(swId1.longValue(), swId2.longValue(), 0).getPath().size()/2);
-				}
-			}
-		}
-		return distances;
-	}
     
     public void init(FloodlightModuleContext context) throws FloodlightModuleException {
         super.init();
@@ -429,17 +416,15 @@ public class RateLimiterController extends Forwarding {
         this.policyStorage = new HashMap<Integer, Policy>();
     	this.flowStorage = new HashMap<Integer, Flow>();
     	
-    	this.distance = initAllPairDistance();
+        switches = floodlightProvider.getSwitches();
     	
         OFMatch temp_match = new OFMatch();
-        temp_match.setWildcards(~(OFMatch.OFPFW_NW_DST_MASK | OFMatch.OFPFW_NW_SRC_MASK));
+        temp_match.setWildcards(~(OFMatch.OFPFW_NW_DST_MASK));
         temp_match.setNetworkDestination(167772164);
-        temp_match.setNetworkSource(167772161);
 
         Set<OFMatch> temp_policyset = new HashSet<OFMatch>();
         temp_policyset.add(temp_match);
         Policy temp_policy = new Policy(temp_policyset, (short)1);
-        temp_policy.setPort((short)2);
         temp_policy.setQueue(1);
         policyStorage.put(Integer.valueOf(temp_policy.hashCode()), temp_policy);
 

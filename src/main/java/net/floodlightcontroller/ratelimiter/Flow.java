@@ -1,10 +1,6 @@
 package net.floodlightcontroller.ratelimiter;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import net.floodlightcontroller.devicemanager.SwitchPort;
 import net.floodlightcontroller.routing.Route;
@@ -16,35 +12,66 @@ import org.openflow.util.HexString;
 public class Flow {
 	int flowid;
 	OFMatch match;
-	NodePortTuple src;
+    NodePortTuple src;
 	NodePortTuple dst;
-	
-	List<Policy> policies;
+    Set<Route> routes;
+    //OFMatch for adding queue on the target switch
+	Map<Policy, OFMatch> policies;
 	
 	public Flow(OFMatch m, NodePortTuple srcNodePort, NodePortTuple dstNodePort){
 		match = m;
-		policies = new ArrayList<Policy>();
+		policies = new HashMap<Policy, OFMatch>();
+        routes = new HashSet<Route>();
 		src = srcNodePort;
 		dst = dstNodePort;
 		flowid = this.hashCode();
 	}
 	
-	public List<Policy> getPoliy(){
-		return this.policies;
+	public Set<Policy> getPolicies(){
+		return policies.keySet();
 	}
+
+    public void addPolicy(Policy policy) {
+        addPolicy(policy, null);
+    }
 	
-	public void addPolicy(Policy policy){
-		this.policies.add(policy);
+	public void addPolicy(Policy policy, OFMatch qmatch){
+		policies.put(policy, qmatch);
 	}
-	
+
+    public void clearRoute() {
+        routes.clear();
+    }
+
+    public void addRoute(Route route) {
+        routes.add(route);
+    }
 	
 	public int hashCode(){
 		return match.hashCode();
 	}
 
+    public void setQmatch(Policy p, OFMatch qm) {
+        policies.put(p, qm);
+    }
 
-	public Route getRoute() {
-		// TODO Auto-generated method stub
-		return null;
+    public OFMatch getQmatch(Policy p) {
+        return policies.get(p);
+    }
+
+    public NodePortTuple getSrc() {
+        return src;
+    }
+
+    public NodePortTuple getDst() {
+        return dst;
+    }
+
+    public OFMatch getMatch() {
+        return match;
+    }
+
+    public Set<Route> getRoutes() {
+		return routes;
 	}
 }
