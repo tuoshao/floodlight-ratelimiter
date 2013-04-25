@@ -15,8 +15,11 @@ import java.util.Set;
 import net.floodlightcontroller.core.util.AppCookie;
 import net.floodlightcontroller.linkdiscovery.ILinkDiscoveryService;
 import net.floodlightcontroller.routing.*;
+
 import org.openflow.protocol.OFFlowMod;
+import org.openflow.protocol.OFFlowRemoved;
 import org.openflow.protocol.OFMatch;
+import org.openflow.protocol.OFMessage;
 import org.openflow.protocol.OFPacketIn;
 import org.openflow.protocol.OFPacketOut;
 import org.openflow.protocol.OFPort;
@@ -112,6 +115,25 @@ public class RateLimiterController extends Forwarding {
 			return false;
 		log.warn("match dst");
 
+		return true;
+	}
+	
+	private boolean checkIfPolicyCoexist(Policy p1, Policy p2){
+		for(Flow flowp1:p1.flows){
+			for(OFMatch rule:p2.rules){
+				if(flowBelongsToRule(flowp1.match, rule)) {
+					return false;
+				}
+			}
+		}
+		
+		for(Flow flowp2:p2.flows){
+			for(OFMatch rule:p1.rules){
+				if(flowBelongsToRule(flowp2.match, rule)){
+					return false;
+				}
+			}
+		}
 		return true;
 	}
 
@@ -428,6 +450,46 @@ public class RateLimiterController extends Forwarding {
         if (processPacket(sw, pi, cntx)) return;
         else super.doForwardFlow(sw, pi, cntx, requestFlowRemovedNotifn);
     }
+    
+    private Command handleFlowRemoved(IOFSwitch sw, OFFlowRemoved msg, FloodlightContext cntx) {
+        OFMatch flow = msg.getMatch();
+        Iterator it = policyStorage.values().iterator();
+        while(it.hasNext()){
+        	Policy p = (Policy) it.next();
+        	for(Flow f:p.flows){
+        		if(f.policies.containsValue(flow)){
+        			p.flows.remove(flow);
+        		}
+        	}
+        }
+        
+        return Command.CONTINUE;
+    }
+    
+    @Override
+    public Command receive(IOFSwitch sw, OFMessage msg,
+                           FloodlightContext cntx) {
+        switch (msg.getType()) {
+            case PACKET_IN:
+                IRoutingDecision decision = null;
+                if (cntx != null)
+                     decision =
+                             IRoutingDecision.rtStore.get(cntx,
+                                                          IRoutingDecision.CONTEXT_DECISION);
+
+                return this.processPacketInMessage(sw,
+                                                   (OFPacketIn) msg,
+                                                   decision,
+                                                   cntx);
+            case FLOW_REMOVED:
+                return handleFlowRemoved(sw, (OFFlowRemoved) msg, cntx);
+            default:
+                break;
+        }
+        return Command.CONTINUE;
+    }
+    
+    
 
     private Map<SwitchPair, Integer> initAllPairDistance() {
 		// TODO Auto-generated method stub
