@@ -19,7 +19,7 @@ public class Flow {
 
     Set<Route> routes;
     //OFMatch for adding queue on the target switch
-	Map<Policy, OFMatch> policies;
+	HashMap<Policy, OFMatch> policies;
 	
 	public Flow(OFMatch m, NodePortTuple srcNodePort, NodePortTuple dstNodePort){
 		match = m;

@@ -348,13 +348,16 @@ public class RateLimiterController extends Forwarding {
         enqueue.setQueueId(p.queue);
         actions.add((OFAction) enqueue);
 
+        long cookie = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
+
         fm.setMatch(flow)
+        	.setCookie(cookie)
             .setCommand(flowModCommand)
             .setActions(actions)
             .setIdleTimeout((short)5)  // infinite
             .setHardTimeout((short) 0)  // infinite
             .setBufferId(OFPacketOut.BUFFER_ID_NONE)
-            .setFlags((short) 0)
+            .setFlags(OFFlowMod.OFPFF_SEND_FLOW_REM)
             .setOutPort(OFPort.OFPP_NONE.getValue())
             .setPriority(p.priority)
             .setLengthU(OFFlowMod.MINIMUM_LENGTH+OFActionEnqueue.MINIMUM_LENGTH);
@@ -433,6 +436,7 @@ public class RateLimiterController extends Forwarding {
         	Policy p = (Policy) it.next();
         	for(Flow f:p.flows){
         		if(f.policies.containsValue(flow)){
+        			log.warn("flow uninstalled!!!!!!!!!!@!!!");
         			p.flows.remove(flow);
         		}
         	}
@@ -444,6 +448,7 @@ public class RateLimiterController extends Forwarding {
     @Override
     public Command receive(IOFSwitch sw, OFMessage msg,
                            FloodlightContext cntx) {
+    	log.warn(String.valueOf(msg.getType()));
         switch (msg.getType()) {
             case PACKET_IN:
                 IRoutingDecision decision = null;
@@ -457,13 +462,20 @@ public class RateLimiterController extends Forwarding {
                                                    decision,
                                                    cntx);
             case FLOW_REMOVED:
+    			log.warn("flow uninstalled!!!!!!!!!!@!!!");
                 return handleFlowRemoved(sw, (OFFlowRemoved) msg, cntx);
             default:
                 break;
         }
         return Command.CONTINUE;
     }
-        
+
+    @Override
+    public void startUp(FloodlightModuleContext context) {
+    	super.startUp(context);
+        floodlightProvider.addOFMessageListener(OFType.FLOW_REMOVED, this);
+    }
+    
     public void init(FloodlightModuleContext context) throws FloodlightModuleException {
         super.init();
         this.floodlightProvider = context.getServiceImpl(IFloodlightProviderService.class);
