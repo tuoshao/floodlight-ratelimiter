@@ -399,6 +399,7 @@ public class RateLimiterController extends Forwarding {
                 return false;
             } else {
                 Route nextr = routingEngine.getRoute(p.getDpid(), p.getPort(), dst.getNodeId(), dst.getPortId(), 0);
+                log.warn(nextr.toString());
                 int inorout = 0;
                 for (NodePortTuple np : nextr.getPath()) {
                     if (inorout == 0) {
@@ -412,7 +413,9 @@ public class RateLimiterController extends Forwarding {
                         inorout = 0;
                     }
                 }
+
                 /* TODO If there's no overlapped switch, we need to find a new switch that can satisfy all flows (IMPORTANT!!!) */
+                /* TODO Need to handle if the target switch already has a policy, and check if the policies conflict */
             }
             return false;
         }
