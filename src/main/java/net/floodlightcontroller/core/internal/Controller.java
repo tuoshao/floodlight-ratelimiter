@@ -1246,6 +1246,7 @@ public class Controller implements IFloodlightProviderService,
                             }
                         }
 
+                        
                         pktinProcTime.recordStartTimeComp(listener);
                         cmd = listener.receive(sw, m, bc);
                         pktinProcTime.recordEndTimeComp(listener);

@@ -9,18 +9,22 @@ import net.floodlightcontroller.topology.NodePortTuple;
 import org.openflow.protocol.OFMatch;
 import org.openflow.util.HexString;
 
+import com.sun.xml.internal.xsom.impl.scd.Iterators.Map;
+
 public class Flow {
 	int flowid;
 	OFMatch match;
     NodePortTuple src;
 	NodePortTuple dst;
+
     Set<Route> routes;
     //OFMatch for adding queue on the target switch
-	Map<Policy, OFMatch> policies;
+	HashMap<Policy, OFMatch> policies;
 	
 	public Flow(OFMatch m, NodePortTuple srcNodePort, NodePortTuple dstNodePort){
 		match = m;
 		policies = new HashMap<Policy, OFMatch>();
+		
         routes = new HashSet<Route>();
 		src = srcNodePort;
 		dst = dstNodePort;
