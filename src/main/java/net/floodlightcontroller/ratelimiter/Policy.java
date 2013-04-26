@@ -6,6 +6,7 @@ import java.util.Set;
 
 import net.floodlightcontroller.core.IOFSwitch;
 
+import net.floodlightcontroller.devicemanager.SwitchPort;
 import net.floodlightcontroller.routing.Link;
 import org.openflow.protocol.OFMatch;
 
@@ -15,7 +16,7 @@ public class Policy {
 	Set<Flow> flows;
 	int flowcount;
 	short speed;
-    Link swport;
+    SwitchPort swport;
 	int queue;
 	int avgdistance;
 	short priority;
@@ -57,27 +58,19 @@ public class Policy {
 		this.queue = q;
 	}
 
-    public long getDpid() {
-        return swport.getSrc();
-    }
-
-    public short getPort() {
-        return swport.getSrcPort();
-    }
-
-    public long getNextDpid() {
-        return swport.getDst();
-    }
-
-    public short getNextPort() {
-        return swport.getDstPort();
-    }
-
-    public Link getLink() {
+    public SwitchPort getSwport() {
         return swport;
     }
 
-    public void setLink(Link l) {
-        swport = l;
+    public void setSwport(SwitchPort swport) {
+        this.swport = swport;
+    }
+
+    public long getDpid() {
+        return swport.getSwitchDPID();
+    }
+
+    public short getPort() {
+        return (short) swport.getPort();
     }
 }

@@ -140,6 +140,7 @@ public class RateLimiterController extends Forwarding {
         }
 
         SwitchPort[] dstDaps = dstDevice.getAttachmentPoints();
+        if (dstDaps == null) return false;
         SwitchPort dstsw = dstDaps[0];
 
 		OFMatch match = new OFMatch();
@@ -155,11 +156,15 @@ public class RateLimiterController extends Forwarding {
         Flow flow = new Flow(match, srctuple, dsttuple);
 
         for (Policy p : policies) {
+            SwitchPort oldsw = p.getSwport();
             if (findNewSwitch(p, flow)) {
                 for (Flow f : p.getFLows()) {
                     //Delete all routes
                     //Delete enqueue
+                    SwitchPort newsw = p.getSwport();
+                    p.setSwport(oldsw);
                     installMatchedFLowToSwitch(f.getQmatch(p), p, OFFlowMod.OFPFC_DELETE_STRICT);
+                    p.setSwport(newsw);
                     //Delete queue
                     //Add new routes and enqueue
                     addRouteAndEnqueue(sw, pi, cntx, p, f);
@@ -173,28 +178,41 @@ public class RateLimiterController extends Forwarding {
 	}
 
     private void addRouteAndEnqueue(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx, Policy p, Flow f) {
-        Route r1_temp = routingEngine.getRoute(sw.getId(), pi.getInPort(), p.getDpid(), p.getPort(), 0);
+        OFMatch match = f.getMatch();
+        /* Add the route before the queue */
+        Route r1_temp = routingEngine.getRoute(f.getSrc().getNodeId(), f.getSrc().getPortId(), p.getDpid(), p.getPort(), 0);
         Route r1 = new Route(r1_temp.getId(), r1_temp.getPath());
         int r1len = r1.getPath().size();
         r1.getPath().remove(r1len-1);
         short qsinport = r1.getPath().get(r1len-2).getPortId();
         r1.getPath().remove(r1len-2);
-        Route r2 = routingEngine.getRoute(p.getNextDpid(), p.getNextPort(), f.getDst().getNodeId(), f.getDst().getPortId(), 0);
-
+        NodePortTuple qs = new NodePortTuple(p.getDpid(), p.getPort());
         long cookie1 = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
-        long cookie2 = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
-        OFMatch match = f.getMatch();
         pushRoute(r1, match, match.getWildcards(), pi, sw.getId(), cookie1,
-                cntx, false, true, OFFlowMod.OFPFC_MODIFY_STRICT);
-        pushRoute(r2, match, match.getWildcards(), pi, sw.getId(), cookie2,
-                cntx, false, true, OFFlowMod.OFPFC_MODIFY_STRICT);
+                cntx, false, true, OFFlowMod.OFPFC_MODIFY);
+        f.addRoute(r1);
 
+        /* Add the route after the queue (if necessary) */
+        Set<Link> links = linkService.getPortLinks().get(qs);
+        if (links != null) {
+            NodePortTuple nexts = null;
+            for (Link l : links) {
+                if (l.getSrc() == qs.getNodeId() && l.getSrcPort() == qs.getPortId()) {
+                    nexts = new NodePortTuple(l.getDst(), l.getDstPort());
+                }
+            }
+            Route r2 = routingEngine.getRoute(nexts.getNodeId(), nexts.getPortId(), f.getDst().getNodeId(), f.getDst().getPortId(), 0);
+            long cookie2 = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
+            pushRoute(r2, match, match.getWildcards(), pi, sw.getId(), cookie2,
+                    cntx, false, true, OFFlowMod.OFPFC_MODIFY);
+            f.addRoute(r2);
+        }
+
+        /* Add the enqueue entry */
         OFMatch s2match = match.clone();
         s2match.setInputPort(qsinport);
         installMatchedFLowToSwitch(s2match, p, OFFlowMod.OFPFC_MODIFY_STRICT);
 
-        f.addRoute(r1);
-        f.addRoute(r2);
         f.addPolicy(p);
         f.setQmatch(p, s2match);
     }
@@ -263,7 +281,7 @@ public class RateLimiterController extends Forwarding {
 		Iterator it = policySet.iterator();
 		while(it.hasNext()){
 			ArrayList<Policy> policySameSwitch = (ArrayList<Policy>) it.next();
-			if(policySameSwitch.get(0).getLink() != null){
+			if(policySameSwitch.get(0).getSwport() != null){
 				// TODO We could apply some strategies here to decide which policy to stay in the same switch
 				Policy p = policySameSwitch.get(0);
 				updatePolicyWithFlow(flow, p);
@@ -310,6 +328,8 @@ public class RateLimiterController extends Forwarding {
         IOFSwitch sw = switches.get(p.getDpid());
         if(flowModCommand != OFFlowMod.OFPFC_DELETE_STRICT) {
             queueCreaterService.createQueue(sw, p.getPort(), p.queue, p.speed);
+        } else {
+            queueCreaterService.deleteQueue(sw, p.getPort(), p.queue);
         }
 
         OFFlowMod fm = new OFFlowMod();
@@ -324,7 +344,7 @@ public class RateLimiterController extends Forwarding {
         enqueue.setType(OFActionType.OPAQUE_ENQUEUE); // I think this happens anyway in the constructor
         enqueue.setPort(p.getPort());
         enqueue.setQueueId(p.queue);
-        actions.add((OFAction) enqueue);
+        actions.add(enqueue);
 
         fm.setMatch(flow)
             .setCommand(flowModCommand)
@@ -358,34 +378,57 @@ public class RateLimiterController extends Forwarding {
 		
 	}
 
+    /* This function checks if the policy needs to change the switch */
 	private boolean findNewSwitch(Policy p, Flow flow) {
-        if (flow.match.getNetworkSource() == 167772165) {
+        NodePortTuple src, dst, next;
+        src = flow.getSrc();
+        dst = flow.getDst();
+        Route r = routingEngine.getRoute(src.getNodeId(), src.getPortId(), dst.getNodeId(), dst.getPortId(), 0);
+        if (r == null) {
+            /* TODO There is no route for this flow, should return error */
+            return false;
+        } else if (p.getFLows().isEmpty()) {
+            /* If this is the first flow matched by this policy, we add a queue at the first hop */
+            next = r.getPath().get(1);
+            p.setSwport(new SwitchPort(next.getNodeId(), next.getPortId()));
+            return true;
+        } else {
+            NodePortTuple qs = new NodePortTuple(p.getDpid(), p.getPort());
+            if (r.getPath().contains(qs)) {
+                /* If the new flow's default route contains the queue switch, there is no need to change it */
+                return false;
+            } else {
+                Route nextr = routingEngine.getRoute(p.getDpid(), p.getPort(), dst.getNodeId(), dst.getPortId(), 0);
+                int inorout = 0;
+                for (NodePortTuple np : nextr.getPath()) {
+                    if (inorout == 0) {
+                        inorout = 1;
+                        continue;
+                    } else {
+                        if (r.getPath().contains(np)) {
+                            p.setSwport(new SwitchPort(np.getNodeId(), np.getPortId()));
+                            return true;
+                        }
+                        inorout = 0;
+                    }
+                }
+                /* TODO If there's no overlapped switch, we need to find a new switch that can satisfy all flows (IMPORTANT!!!) */
+            }
+            return false;
+        }
+        /*
+        if (flow.match.getNetworkSource() == 167772162) {
             IOFSwitch s1 = switches.get((long) 1);
             NodePortTuple s2tuple = new NodePortTuple(s1.getId(), (short) 2);
-            Set<Link> s2links = linkService.getPortLinks().get(s2tuple);
-            Link s2link = null;
-            for (Link l : s2links) {
-                if (l.getSrc() == s1.getId() && l.getSrcPort() == 2) {
-                    s2link = l;
-                    break;
-                }
-            }
-            p.setLink(s2link);
+            p.setSwport(new SwitchPort(s2tuple.getNodeId(), s2tuple.getPortId()));
             return true;
         } else {
             IOFSwitch s2 = switches.get((long) 2);
             NodePortTuple s2tuple = new NodePortTuple(s2.getId(), (short) 2);
-            Set<Link> s2links = linkService.getPortLinks().get(s2tuple);
-            Link s2link = null;
-            for (Link l : s2links) {
-                if (l.getSrc() == s2.getId() && l.getSrcPort() == 2) {
-                    s2link = l;
-                    break;
-                }
-            }
-            p.setLink(s2link);
+            p.setSwport(new SwitchPort(s2tuple.getNodeId(), s2tuple.getPortId()));
             return false;
         }
+        */
 	}
 
 	/**
