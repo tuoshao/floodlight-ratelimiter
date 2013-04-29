@@ -14,8 +14,6 @@ import java.util.Set;
 
 import net.floodlightcontroller.core.util.AppCookie;
 import net.floodlightcontroller.linkdiscovery.ILinkDiscoveryService;
-import net.floodlightcontroller.qos.IQoSService;
-import net.floodlightcontroller.qos.QoSWebRoutable;
 import net.floodlightcontroller.restserver.IRestApiService;
 import net.floodlightcontroller.routing.*;
 
@@ -43,6 +41,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class RateLimiterController extends Forwarding implements RateLimiterService{
+    // number of queues on a switch
+    private static final int NQUEUE = 3;
+
 	private Map<Integer, Policy> policyStorage;
 	private Map<Integer, Flow> flowStorage;
     private static Logger log = LoggerFactory.getLogger(RateLimiterController.class);
@@ -50,7 +51,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
     protected IQueueCreaterService queueCreaterService;
 	protected IRestApiService restApi;
     private Map<Long, IOFSwitch> switches;
-    private Map<Long, Set<Policy>> swPolicyTuples;
+    private Map<NodePortTuple, Set<Policy>> swPolicyTuples;
 
 	public boolean flowBelongsToRule(OFMatch flow, OFMatch rule){
         log.warn("flow: " + flow.toString() + " rule: " + rule.toString());
@@ -105,16 +106,46 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 		return true;
 	}
 
-    private boolean isSwitchAvaiForPolicy(Policy p, Long sw) {
+    private boolean isSwitchAvaiForPolicy(Policy p, NodePortTuple sw) {
+        log.warn("isSwitchAvaiForPolicy:" + sw.toString());
+        Set<Policy> pset;
         if (!swPolicyTuples.containsKey(sw)) {
-            swPolicyTuples.put(sw, new HashSet<Policy>());
+            pset = new HashSet<Policy>();
+            pset.add(p);
+            swPolicyTuples.put(sw, pset);
+            p.setQueue(1);
             return true;
         }
-        for (Policy ponsw : swPolicyTuples.get(sw)) {
+
+        Set<Integer> usedQueue = new HashSet<Integer>();
+        pset = swPolicyTuples.get(sw);
+        for (Policy ponsw : pset) {
+            if (ponsw.getSwport() == null || ponsw.equals(p)) {
+                /* TODO error-prone */
+                pset.remove(ponsw);
+                continue;
+            }
+            ArrayList<OFMatch> ms1 = new ArrayList<OFMatch>(ponsw.getRules());
+            ArrayList<OFMatch> ms2 = new ArrayList<OFMatch>(p.getRules());
+            log.warn("Check policies: " + ms1.get(0) + ms2.get(0));
             if (checkIfPolicyCoexist(p, ponsw)) {
+                log.warn("overlap flow exists");
                 return false;
             }
+            usedQueue.add(ponsw.getQueue());
         }
+
+        if (pset.size() >= NQUEUE) {
+            return false;
+        }
+
+        for (int i = 1; i <= NQUEUE; i++) {
+            if (!usedQueue.contains(i)) {
+                p.setQueue(i);
+                break;
+            }
+        }
+        pset.add(p);
         return true;
     }
 	
@@ -122,7 +153,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 		for(Flow flowp1:p1.flows){
 			for(OFMatch rule:p2.rules){
 				if(flowBelongsToRule(flowp1.match, rule)) {
-					return false;
+					return true;
 				}
 			}
 		}
@@ -130,11 +161,11 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 		for(Flow flowp2:p2.flows){
 			for(OFMatch rule:p1.rules){
 				if(flowBelongsToRule(flowp2.match, rule)){
-					return false;
+					return true;
 				}
 			}
 		}
-		return true;
+		return false;
 	}
 
 	private Set<Policy> matchPoliciesFromStorage(OFMatch match){
@@ -194,12 +225,13 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         for (Policy p : policies) {
             SwitchPort oldsw = p.getSwport();
             if (findNewSwitch(p, flow)) {
-                if (!swPolicyTuples.containsKey(p.getDpid())) {
-                    swPolicyTuples.put(p.getDpid(), new HashSet<Policy>());
+                NodePortTuple nsw = new NodePortTuple(p.getDpid(), p.getPort());
+                if (!swPolicyTuples.containsKey(nsw)) {
+                    swPolicyTuples.put(nsw, new HashSet<Policy>());
                 }
-                swPolicyTuples.get(p.getDpid()).add(p);
+                swPolicyTuples.get(nsw).add(p);
                 if (oldsw != null) {
-                    swPolicyTuples.get(oldsw.getSwitchDPID()).remove(p);
+                    swPolicyTuples.get(new NodePortTuple(oldsw.getSwitchDPID(), oldsw.getPort())).remove(p);
                 }
                 synchronized (p.getFLows()) {
                     for (Flow f : p.getFLows()) {
@@ -208,8 +240,6 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                         }
                         if (oldsw != null) {
                             //Delete enqueue and queue
-                            log.warn(f.getMatch().toString());
-                            log.warn(f.getQmatches().toString());
                             SwitchPort newsw = p.getSwport();
                             p.setSwport(oldsw);
                             installMatchedFLowToSwitch(f.getQmatch(p), p, OFFlowMod.OFPFC_DELETE_STRICT);
@@ -478,9 +508,10 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
             return false;
         } else if (p.getFLows().isEmpty()) {
             /* If this is the first flow matched by this policy, we add a queue at the first hop */
+            log.warn("First flow of this matched policy");
             p.addFlow(flow);
             next = r.getPath().get(1);
-            if (isSwitchAvaiForPolicy(p, next.getNodeId())) {
+            if (isSwitchAvaiForPolicy(p, next)) {
                 p.setSwport(new SwitchPort(next.getNodeId(), next.getPortId()));
                 return true;
             }
@@ -499,11 +530,11 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         NodePortTuple bestsp = null;
         int bestroute = Integer.MAX_VALUE;
         for (IOFSwitch sw : switches.values()) {
-            if (!isSwitchAvaiForPolicy(p, sw.getId())) {
-                continue;
-            }
             for (OFPhysicalPort po : sw.getPorts()) {
                 NodePortTuple sp = new NodePortTuple(sw.getId(), po.getPortNumber());
+                if (!isSwitchAvaiForPolicy(p, sp)) {
+                    continue;
+                }
                 if (sp.getPortId() < 0) {
                     /* Don't check negative ports (perhaps for controller connection) */
                     continue;
@@ -629,31 +660,34 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
     	this.flowStorage = new HashMap<Integer, Flow>();
     	
         switches = floodlightProvider.getSwitches();
-        swPolicyTuples = new HashMap<Long, Set<Policy>>();
-        for (Long s : switches.keySet()) {
-            swPolicyTuples.put(s, new HashSet<Policy>());
+        swPolicyTuples = new HashMap<NodePortTuple, Set<Policy>>();
+        for (IOFSwitch s : switches.values()) {
+            for (OFPhysicalPort po : s.getPorts()) {
+                NodePortTuple nnpt = new NodePortTuple(s.getId(), po.getPortNumber());
+                swPolicyTuples.put(nnpt, new HashSet<Policy>());
+            }
         }
-/*
+
         OFMatch temp_match = new OFMatch(), temp2 = new OFMatch();
         temp_match.setWildcards(~(OFMatch.OFPFW_NW_DST_MASK));
-        temp_match.setNetworkDestination(167772164);
-        temp2.setWildcards(~(OFMatch.OFPFW_NW_SRC_MASK));
-        temp2.setNetworkSource(167772163);
+        temp_match.setNetworkDestination(167772163);
+        temp2.setWildcards(~(OFMatch.OFPFW_NW_DST_MASK));
+        temp2.setNetworkDestination(167772162);
 
         Set<OFMatch> temp_policyset = new HashSet<OFMatch>(), temp2_set = new HashSet<OFMatch>();
         temp_policyset.add(temp_match);
         temp2_set.add(temp2);
         Policy temp_policy = new Policy(temp_policyset, (short)1);
         Policy temp2_pol = new Policy(temp2_set, (short) 1);
-        temp_policy.setQueue(1);
-        temp2_pol.setQueue(1);
+        //temp_policy.setQueue(1);
+        //temp2_pol.setQueue(1);
         log.info("policyid: " + temp_policy.policyid);
         for(OFMatch match:temp_policy.getRules()){
         	log.info(match.toString());
         }
         policyStorage.put(Integer.valueOf(temp_policy.hashCode()), temp_policy);
         policyStorage.put(Integer.valueOf(temp2_pol.hashCode()), temp2_pol);
-*/
+
         // read our config options
         Map<String, String> configOptions = context.getConfigParams(this);
         try {

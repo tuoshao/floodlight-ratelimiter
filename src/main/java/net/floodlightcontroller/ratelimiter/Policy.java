@@ -43,9 +43,12 @@ public class Policy {
 	public Set<OFMatch> getRules(){
 		return this.rules;
 	}
-	
-	
-	private int getOFMatchHashCode(OFMatch match){
+
+    public int getQueue() {
+        return queue;
+    }
+
+    private int getOFMatchHashCode(OFMatch match){
 		int prime = 131;
 		int result = 1;
 		int wildcard = match.getWildcards();
