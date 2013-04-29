@@ -214,13 +214,37 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         OFMatch flowmatch = match.clone();
         flowmatch.setInputPort((short) 0);
         Flow flow = new Flow(flowmatch, srctuple, dsttuple);
-        flowStorage.put(flow.hashCode(), flow);
 
         Set<Policy> policies = matchPoliciesFromStorage(match);
         log.warn("This flow matches " + policies.size() + " policies ");
         if(policies.isEmpty()) {
+        	Integer wildcard_hints = null;
+            IRoutingDecision decision = null;
+            if (cntx != null) {
+                decision = IRoutingDecision.rtStore
+                        .get(cntx,
+                                IRoutingDecision.CONTEXT_DECISION);
+            }
+            if (decision != null) {
+                wildcard_hints = decision.getWildcards();
+            } else {
+            	// L2 only wildcard if there is no prior route decision
+                wildcard_hints = ((Integer) sw
+                        .getAttribute(IOFSwitch.PROP_FASTWILDCARDS))
+                        .intValue()
+                        & ~OFMatch.OFPFW_IN_PORT
+                        & ~OFMatch.OFPFW_DL_VLAN
+                        & ~OFMatch.OFPFW_DL_SRC
+                        & ~OFMatch.OFPFW_DL_DST
+                        & ~OFMatch.OFPFW_NW_SRC_MASK
+                        & ~OFMatch.OFPFW_NW_DST_MASK;
+            }
+            flow.match.setWildcards(wildcard_hints.intValue());
+            flowStorage.put(flow.hashCode(), flow);
+
             return false;
         }
+        flowStorage.put(flow.hashCode(), flow);
 
         for (Policy p : policies) {
             SwitchPort oldsw = p.getSwport();
