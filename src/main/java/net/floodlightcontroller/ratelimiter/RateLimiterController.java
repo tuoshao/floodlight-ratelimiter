@@ -3,6 +3,7 @@ package net.floodlightcontroller.ratelimiter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -13,6 +14,9 @@ import java.util.Set;
 
 import net.floodlightcontroller.core.util.AppCookie;
 import net.floodlightcontroller.linkdiscovery.ILinkDiscoveryService;
+import net.floodlightcontroller.qos.IQoSService;
+import net.floodlightcontroller.qos.QoSWebRoutable;
+import net.floodlightcontroller.restserver.IRestApiService;
 import net.floodlightcontroller.routing.*;
 
 import org.openflow.protocol.OFFlowMod;
@@ -33,6 +37,7 @@ import net.floodlightcontroller.core.IFloodlightProviderService;
 import net.floodlightcontroller.core.IOFSwitch;
 import net.floodlightcontroller.core.module.FloodlightModuleContext;
 import net.floodlightcontroller.core.module.FloodlightModuleException;
+import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.counter.ICounterStoreService;
 import net.floodlightcontroller.devicemanager.IDevice;
 import net.floodlightcontroller.devicemanager.IDeviceService;
@@ -44,13 +49,14 @@ import net.floodlightcontroller.benchmarkcontroller.IQueueCreaterService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class RateLimiterController extends Forwarding {
+public class RateLimiterController extends Forwarding implements RateLimiterService{
 	private Map<Integer, Policy> policyStorage;
 	private Map<Integer, Flow> flowStorage;
 	private Map<Integer, HashSet<Policy>> subSets;
     private static Logger log = LoggerFactory.getLogger(RateLimiterController.class);
     private ILinkDiscoveryService linkService;
     protected IQueueCreaterService queueCreaterService;
+	protected IRestApiService restApi;
     private Map<Long, IOFSwitch> switches;
 
 	public boolean flowBelongsToRule(OFMatch flow, OFMatch rule){
@@ -519,8 +525,29 @@ public class RateLimiterController extends Forwarding {
     @Override
     public void startUp(FloodlightModuleContext context) {
     	super.startUp(context);
+    	restApi.addRestletRoutable(new RateLimiterWeb());	
         floodlightProvider.addOFMessageListener(OFType.FLOW_REMOVED, this);
     }
+    
+    @Override
+    public Collection<Class<? extends IFloodlightService>> getModuleServices() {
+        // We don't export any services
+    	Collection<Class<? extends IFloodlightService>> l = 
+                new ArrayList<Class<? extends IFloodlightService>>();
+        l.add(RateLimiterService.class);
+        return l;
+    }
+    
+    @Override
+	public Map<Class<? extends IFloodlightService>, IFloodlightService> getServiceImpls() {
+		Map<Class<? extends IFloodlightService>,
+        IFloodlightService> m = 
+        new HashMap<Class<? extends IFloodlightService>,
+        IFloodlightService>();
+        // We are the class that implements the service
+        m.put(RateLimiterService.class, this);
+        return m;
+	}
     
     public void init(FloodlightModuleContext context) throws FloodlightModuleException {
         super.init();
@@ -531,6 +558,7 @@ public class RateLimiterController extends Forwarding {
         this.counterStore = context.getServiceImpl(ICounterStoreService.class);
         this.linkService = context.getServiceImpl(ILinkDiscoveryService.class);
         this.queueCreaterService = context.getServiceImpl(IQueueCreaterService.class);
+        this.restApi = context.getServiceImpl(IRestApiService.class);
         this.policyStorage = new HashMap<Integer, Policy>();
     	this.flowStorage = new HashMap<Integer, Flow>();
     	
@@ -544,6 +572,10 @@ public class RateLimiterController extends Forwarding {
         temp_policyset.add(temp_match);
         Policy temp_policy = new Policy(temp_policyset, (short)1);
         temp_policy.setQueue(1);
+        log.info("policyid: " + temp_policy.policyid);
+        for(OFMatch match:temp_policy.getRules()){
+        	log.info(match.toString());
+        }
         policyStorage.put(Integer.valueOf(temp_policy.hashCode()), temp_policy);
 
         // read our config options
@@ -573,4 +605,35 @@ public class RateLimiterController extends Forwarding {
         log.debug("FlowMod hard timeout set to {} seconds", 
                   FLOWMOD_DEFAULT_HARD_TIMEOUT);
     }
+
+	@Override
+	public synchronized void addPolicy(Policy p) {
+		// TODO Auto-generated method stub
+		policyStorage.put(p.policyid, p);
+	}
+
+	@Override
+	public synchronized void deletePolicy(Policy p) {
+		// TODO Auto-generated method stub
+		policyStorage.remove(p.policyid);
+	}
+
+	@Override
+	public boolean checkIfPolicyExists(Policy policy) {
+		// TODO Auto-generated method stub
+		if(policyStorage.containsKey(policy.policyid)){
+			return true;
+		}
+		log.info("policyid: "+policy.policyid);
+		for(OFMatch match:policy.getRules()){
+        	log.info(match.toString());
+        }
+		return false;
+	}
+
+	@Override
+	public List<Policy> getPolicies() {
+		// TODO Auto-generated method stub
+		return (List<Policy>) policyStorage.values();
+	}
 }
