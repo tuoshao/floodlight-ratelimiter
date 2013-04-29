@@ -45,63 +45,29 @@ def main():
             action="store_const",
             const="delete",
             metavar="delete")
-    parser.add_argument("-s","--switch",
-            required=False,
-            dest="switch")
     parser.add_argument("-j","--json",
             required=True,
             dest="obj")
-    parser.add_argument("-r","--rate",
-            required=False,
-            dest="rate")
     args = parser.parse_args()
 
     #initialize arguments
     c = args.c
     p = args.p
     action = args.action_op
-    switch = args.switch
     json = args.obj
-    rate = args.rate
 
     # Add/ Delete
     if action == "add":
         print "add"
         if json != None:
-            #syntax check ip addresses
-                #required fields
-                #Credit: Sriram Santosh
-            #ipPattern = re.compile('\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}')
-            #if len(re.findall(ipPattern,src)) > 0:
-            #        print "src good"
-            #else:
-            #        print "bad src"
-            #        exit(1)
-            #if len(re.findall(ipPattern,dest)) > 0:
-            #        print "dest good"
-            #else:
-            #        print "bad dest"
-            #        exit(1)
-            #all goes well, add
-            if rate != "":
-                if os.getuid() != 0:
-                    print "Root permissions required to add queue"
-                    exit()
-                j = simplejson.loads(json)
-                queue_cmd = "sh ovs-set-port-queue.sh %s %s %s %s 0"%(switch,j['enqueue-port'],j['queue'],rate)
-                print queue_cmd
-                queue_res = os.popen(queue_cmd).read()
-                print queue_res
-                if queue_res.find("Success", 0) == -1:
-                    exit(1)
-            add(switch,json,c,p)
+            add(json,c,p)
             exit()
         else:
             print "Missing arguments, check json"
             exit(1)
     elif action == "delete":
         print "delete"
-        delete(switch,json,c,p)
+        delete(json,c,p)
         exit()
     else:
         print "action not unrecognized"
@@ -115,7 +81,7 @@ def main():
 # @C, @P -Controller / Port
 # 
 # Author- Ryan Wallner    
-def add(switch,json,c,p):
+def add(json,c,p):
     qos_pusher = "qosmanager.py"
     pwd = os.getcwd()
     print pwd
@@ -129,15 +95,7 @@ def add(switch,json,c,p):
         print e
         exit(1)
     
-    j = simplejson.loads(json)
-    #add necessary match values to policy for path
-    j['name'] = "s"+switch+"p"+j['enqueue-port']+"q"+j['queue']
-    #screwed up connectivity on this match, remove
-    #p['ingress-port'] = str(in_prt)
-    print "Adding Queueing Rule"
-    sjson =  simplejson.JSONEncoder(sort_keys=False,indent=3).encode(j)
-    print sjson
-    cmd = "./qosmanager.py --add --type policy --json '%s' -c %s -p %s" % (sjson,c,p)
+    cmd = "./qosmanager.py --add --json '%s' -c %s -p %s" % (json,c,p)
     res = subprocess.Popen(cmd, shell=True).wait()
                 
 def polErr():
@@ -149,16 +107,8 @@ make sure you have a service OR a queue defined"""
 # @C, @P -Controller / Port
 # 
 # Author- Ryan Wallner  
-def delete(switch,json,c,p):
-    j = simplejson.loads(json)
-    #add necessary match values to policy for path
-    j['name'] = "s"+switch+"p"+j['enqueue-port']+"q"+j['queue']
-    #screwed up connectivity on this match, remove
-    #p['ingress-port'] = str(in_prt)
-    print "Deleting Queueing Rule"
-    sjson =  simplejson.JSONEncoder(sort_keys=False,indent=3).encode(j)
-    print sjson
-    cmd = "./qosmanager.py --delete --type policy --json '%s' -c %s -p %s " % (sjson,c,p)
+def delete(json,c,p):
+    cmd = "./qosmanager.py --delete --json '%s' -c %s -p %s " % (json,c,p)
     print cmd
     subprocess.Popen(cmd,shell=True).wait() 
 
