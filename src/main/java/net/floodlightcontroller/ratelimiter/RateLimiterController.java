@@ -97,25 +97,17 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 		
 		int ruleSrcMask = rule.getNetworkSourceMaskLen();
 		int matchSrcMask = flow.getNetworkSourceMaskLen();
-		log.warn(String.valueOf(ruleSrcMask));
-		log.warn(String.valueOf(matchSrcMask));
-
-		log.warn(String.valueOf((0xffffffff << (3))));
-		log.warn(String.valueOf((1 << (33))));
-
 		
 		if(!(ruleSrcMask <= matchSrcMask &&
 				(rule.getNetworkSource() & ((ruleSrcMask==0)? 0:0xffffffff << (32-ruleSrcMask))) ==
 				(flow.getNetworkSource() & ((ruleSrcMask==0)? 0:0xffffffff << (32-ruleSrcMask)))))
 			return false;
-		log.warn("match src");
 		int ruleDstMask = rule.getNetworkDestinationMaskLen();
 		int matchDstMask = flow.getNetworkDestinationMaskLen();
 		if(!(ruleDstMask <= matchDstMask &&
 				(rule.getNetworkDestination() & ((ruleDstMask==0)? 0:0xffffffff << (32-ruleDstMask))) ==
 				(flow.getNetworkDestination() & ((ruleDstMask==0)? 0:0xffffffff << (32-ruleDstMask)))))
 			return false;
-		log.warn("match dst");
 
 		return true;
 	}
@@ -181,7 +173,10 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 
         NodePortTuple srctuple = new NodePortTuple(sw.getId(), pi.getInPort());
         NodePortTuple dsttuple = new NodePortTuple(dstsw.getSwitchDPID(), dstsw.getPort());
-        Flow flow = new Flow(match, srctuple, dsttuple);
+
+        OFMatch flowmatch = match.clone();
+        flowmatch.setInputPort((short) 0);
+        Flow flow = new Flow(flowmatch, srctuple, dsttuple);
 
         for (Policy p : policies) {
             SwitchPort oldsw = p.getSwport();
@@ -198,10 +193,14 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                     addRouteAndEnqueue(sw, pi, cntx, p, f);
                 }
             }
-
             addRouteAndEnqueue(sw, pi, cntx, p, flow);
             p.addFlow(flow);
         }
+
+        if (!flow.getPolicies().isEmpty()) {
+            flowStorage.put(flow.hashCode(), flow);
+        }
+
 		return true;
 	}
 
@@ -444,25 +443,22 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                         inorout = 0;
                     }
                 }
-
+/*
                 /* TODO If there's no overlapped switch, we need to find a new switch that can satisfy all flows (IMPORTANT!!!) */
+                for (IOFSwitch sw : switches.values()) {
+                    for (Flow f : p.getFLows()) {
+                        if (!routingEngine.routeExists(sw.getId(), f.getDst().getNodeId()) ||
+                                !routingEngine.routeExists()) {
+
+                        }
+                    }
+                }
+*/
+
                 /* TODO Need to handle if the target switch already has a policy, and check if the policies conflict */
             }
             return false;
         }
-        /*
-        if (flow.match.getNetworkSource() == 167772162) {
-            IOFSwitch s1 = switches.get((long) 1);
-            NodePortTuple s2tuple = new NodePortTuple(s1.getId(), (short) 2);
-            p.setSwport(new SwitchPort(s2tuple.getNodeId(), s2tuple.getPortId()));
-            return true;
-        } else {
-            IOFSwitch s2 = switches.get((long) 2);
-            NodePortTuple s2tuple = new NodePortTuple(s2.getId(), (short) 2);
-            p.setSwport(new SwitchPort(s2tuple.getNodeId(), s2tuple.getPortId()));
-            return false;
-        }
-        */
 	}
 
 	/**
@@ -482,25 +478,26 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
     }
     
     private Command handleFlowRemoved(IOFSwitch sw, OFFlowRemoved msg, FloodlightContext cntx) {
-        OFMatch flow = msg.getMatch();
-        Iterator it = policyStorage.values().iterator();
-        while(it.hasNext()){
-        	Policy p = (Policy) it.next();
-        	for(Flow f:p.flows){
-        		if(f.policies.containsValue(flow)){
-        			log.warn("flow uninstalled!!!!!!!!!!@!!!");
-        			p.flows.remove(flow);
-        		}
-        	}
+        log.warn("handleFlowRemove called");
+        OFMatch match = msg.getMatch();
+        match.setInputPort((short) 0);
+        if (!flowStorage.containsKey(match.hashCode())) {
+            return Command.CONTINUE;
+        } else {
+            Flow flow = flowStorage.get(match.hashCode());
+            for (Policy p : flow.getPolicies()) {
+                p.getFLows().remove(flow);
+            }
+            log.warn("Remove Flow: " + flow.getMatch().toString());
+            flowStorage.remove(flow);
+            return Command.CONTINUE;
+
         }
-        
-        return Command.CONTINUE;
     }
     
     @Override
     public Command receive(IOFSwitch sw, OFMessage msg,
                            FloodlightContext cntx) {
-    	log.warn(String.valueOf(msg.getType()));
         switch (msg.getType()) {
             case PACKET_IN:
                 IRoutingDecision decision = null;
@@ -514,7 +511,6 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                                                    decision,
                                                    cntx);
             case FLOW_REMOVED:
-    			log.warn("flow uninstalled!!!!!!!!!!@!!!");
                 return handleFlowRemoved(sw, (OFFlowRemoved) msg, cntx);
             default:
                 break;

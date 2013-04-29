@@ -2,14 +2,10 @@ package net.floodlightcontroller.ratelimiter;
 
 import java.util.*;
 
-import net.floodlightcontroller.devicemanager.SwitchPort;
 import net.floodlightcontroller.routing.Route;
 import net.floodlightcontroller.topology.NodePortTuple;
 
 import org.openflow.protocol.OFMatch;
-import org.openflow.util.HexString;
-
-import com.sun.xml.internal.xsom.impl.scd.Iterators.Map;
 
 public class Flow {
 	int flowid;
