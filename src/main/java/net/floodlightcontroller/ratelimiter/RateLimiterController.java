@@ -691,7 +691,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                 swPolicyTuples.put(nnpt, new HashSet<Policy>());
             }
         }
-
+/*
         OFMatch temp_match = new OFMatch(), temp2 = new OFMatch();
         temp_match.setWildcards(~(OFMatch.OFPFW_NW_DST_MASK));
         temp_match.setNetworkDestination(167772163);
@@ -711,7 +711,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         }
         policyStorage.put(Integer.valueOf(temp_policy.hashCode()), temp_policy);
         policyStorage.put(Integer.valueOf(temp2_pol.hashCode()), temp2_pol);
-
+*/
         // read our config options
         Map<String, String> configOptions = context.getConfigParams(this);
         try {
