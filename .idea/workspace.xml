@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="BookmarkManager">
-    <bookmark url="file://$PROJECT_DIR$/src/main/java/net/floodlightcontroller/ratelimiter/RateLimiterController.java" line="206" />
+    <bookmark url="file://$PROJECT_DIR$/src/main/java/net/floodlightcontroller/ratelimiter/RateLimiterController.java" line="238" />
   </component>
   <component name="ChangeListManager">
     <list default="true" id="f1a9e9fc-65b3-4a94-a415-7963fc14262f" name="Default" comment="">
@@ -12,7 +12,7 @@
     <ignored path="floodlight.iws" />
     <ignored path=".idea/workspace.xml" />
     <file path="/Dummy.txt" changelist="f1a9e9fc-65b3-4a94-a415-7963fc14262f" time="1366929693935" ignored="false" />
-    <file path="/RateLimiterController.java" changelist="f1a9e9fc-65b3-4a94-a415-7963fc14262f" time="1367207796836" ignored="false" />
+    <file path="/RateLimiterController.java" changelist="f1a9e9fc-65b3-4a94-a415-7963fc14262f" time="1367263080756" ignored="false" />
     <file path="/fragment.java" changelist="f1a9e9fc-65b3-4a94-a415-7963fc14262f" time="1366741982054" ignored="false" />
     <file path="/floodlightdefault.properties" changelist="f1a9e9fc-65b3-4a94-a415-7963fc14262f" time="1366828857921" ignored="false" />
     <file path="/net.floodlightcontroller.core.module.IFloodlightModule" changelist="f1a9e9fc-65b3-4a94-a415-7963fc14262f" time="1366828872725" ignored="false" />
@@ -87,17 +87,22 @@
       <file leaf-file-name="RateLimiterController.java" pinned="false" current="true" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/src/main/java/net/floodlightcontroller/ratelimiter/RateLimiterController.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state line="706" column="42" selection-start="27732" selection-end="27732" vertical-scroll-proportion="0.45948717">
+            <state line="144" column="22" selection-start="5712" selection-end="5712" vertical-scroll-proportion="0.5651282">
               <folding>
                 <element signature="imports" expanded="true" />
-                <element signature="e#5265#5273#0" expanded="true" />
-                <element signature="e#11239#11258#0" expanded="true" />
-                <element signature="e#14171#14181#0" expanded="true" />
-                <element signature="e#16567#16582#0" expanded="true" />
-                <element signature="e#16607#16622#0" expanded="true" />
-                <element signature="e#22978#23015#0" expanded="true" />
-                <element signature="e#23287#23352#0" expanded="true" />
-                <marker date="1367207807769" expanded="true" signature="12089:13662" placeholder="..." />
+                <element signature="e#4811#4820#0" expanded="true" />
+                <element signature="e#5128#5137#0" expanded="true" />
+                <element signature="e#5207#5216#0" expanded="true" />
+                <element signature="e#6256#6264#0" expanded="true" />
+                <element signature="e#12194#12213#0" expanded="true" />
+                <element signature="e#15126#15136#0" expanded="true" />
+                <element signature="e#17522#17537#0" expanded="true" />
+                <element signature="e#17562#17577#0" expanded="true" />
+                <element signature="e#23984#24021#0" expanded="true" />
+                <element signature="e#24293#24358#0" expanded="true" />
+                <element signature="e#26093#26102#0" expanded="true" />
+                <element signature="e#26129#26138#0" expanded="true" />
+                <marker date="1367263082253" expanded="true" signature="13044:14617" placeholder="..." />
               </folding>
             </state>
           </provider>
@@ -188,7 +193,7 @@
       <file leaf-file-name="Policy.java" pinned="false" current="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/src/main/java/net/floodlightcontroller/ratelimiter/Policy.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state line="30" column="24" selection-start="721" selection-end="721" vertical-scroll-proportion="0.0">
+            <state line="46" column="27" selection-start="951" selection-end="951" vertical-scroll-proportion="0.0">
               <folding>
                 <element signature="imports" expanded="true" />
                 <element signature="e#517#523#0" expanded="true" />
@@ -1080,16 +1085,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/src/main/java/net/floodlightcontroller/ratelimiter/Policy.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state line="30" column="24" selection-start="721" selection-end="721" vertical-scroll-proportion="0.0">
-          <folding>
-            <element signature="imports" expanded="true" />
-            <element signature="e#517#523#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/src/main/java/net/floodlightcontroller/core/util/AppCookie.java">
       <provider selected="true" editor-type-id="text-editor">
         <state line="42" column="23" selection-start="1395" selection-end="1395" vertical-scroll-proportion="0.459">
@@ -1117,19 +1112,34 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/src/main/java/net/floodlightcontroller/ratelimiter/RateLimiterController.java">
+    <entry file="file://$PROJECT_DIR$/src/main/java/net/floodlightcontroller/ratelimiter/Policy.java">
       <provider selected="true" editor-type-id="text-editor">
-        <state line="706" column="42" selection-start="27732" selection-end="27732" vertical-scroll-proportion="0.45948717">
+        <state line="46" column="27" selection-start="951" selection-end="951" vertical-scroll-proportion="0.0">
           <folding>
             <element signature="imports" expanded="true" />
-            <element signature="e#5265#5273#0" expanded="true" />
-            <element signature="e#11239#11258#0" expanded="true" />
-            <element signature="e#14171#14181#0" expanded="true" />
-            <element signature="e#16567#16582#0" expanded="true" />
-            <element signature="e#16607#16622#0" expanded="true" />
-            <element signature="e#22978#23015#0" expanded="true" />
-            <element signature="e#23287#23352#0" expanded="true" />
-            <marker date="1367207807769" expanded="true" signature="12089:13662" placeholder="..." />
+            <element signature="e#517#523#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/src/main/java/net/floodlightcontroller/ratelimiter/RateLimiterController.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state line="144" column="22" selection-start="5712" selection-end="5712" vertical-scroll-proportion="0.5651282">
+          <folding>
+            <element signature="imports" expanded="true" />
+            <element signature="e#4811#4820#0" expanded="true" />
+            <element signature="e#5128#5137#0" expanded="true" />
+            <element signature="e#5207#5216#0" expanded="true" />
+            <element signature="e#6256#6264#0" expanded="true" />
+            <element signature="e#12194#12213#0" expanded="true" />
+            <element signature="e#15126#15136#0" expanded="true" />
+            <element signature="e#17522#17537#0" expanded="true" />
+            <element signature="e#17562#17577#0" expanded="true" />
+            <element signature="e#23984#24021#0" expanded="true" />
+            <element signature="e#24293#24358#0" expanded="true" />
+            <element signature="e#26093#26102#0" expanded="true" />
+            <element signature="e#26129#26138#0" expanded="true" />
+            <marker date="1367263082253" expanded="true" signature="13044:14617" placeholder="..." />
           </folding>
         </state>
       </provider>
