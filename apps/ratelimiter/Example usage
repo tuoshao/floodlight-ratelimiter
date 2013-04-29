@@ -1,0 +1,8 @@
+sudo python ratelimiter.py -a -j {"ingress-port": "1","ip-src":"10.0.0.1", "ip-dst":"10.0.0.2", "sw": "00:00:00:00:00:00:00:01","queue":"1","enqueue-port":"2"} -r 1000000
+
+sudo python ratelimiter.py -a -s 1 -j '{"ingress-port": "1","ip-src":"10.0.0.1", "ip-dst":"10.0.0.2", "sw": "00:00:00:00:00:00:00:01","queue":"1","enqueue-port":"2"}' -r 1000000 -c 172.16.25.1
+
+sudo python ratelimiter.py -a -s 1 -j '{"ingress-port": "2","ip-src":"10.0.0.2", "ip-dst":"10.0.0.1", "sw": "00:00:00:00:00:00:00:01","queue":"1","enqueue-port":"1"}' -r 1000000 -c 172.16.25.1
+
+sudo python ratelimiter.py -d -s 1 -j '{"ingress-port": "1","ip-src":"10.0.0.1", "ip-dst":"10.0.0.2", "sw": "00:00:00:00:00:00:00:01","queue":"1","enqueue-port":"2"}' -c 172.16.25.
+
