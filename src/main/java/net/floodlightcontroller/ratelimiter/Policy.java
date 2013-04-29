@@ -1,14 +1,10 @@
 package net.floodlightcontroller.ratelimiter;
 
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Set;
-
-import net.floodlightcontroller.core.IOFSwitch;
-
 import net.floodlightcontroller.devicemanager.SwitchPort;
-import net.floodlightcontroller.routing.Link;
 import org.openflow.protocol.OFMatch;
 
 public class Policy {
@@ -22,12 +18,12 @@ public class Policy {
 	int avgdistance;
 	short priority;
 
-	public Policy(Set<OFMatch> r, short speed){
+	public Policy(Set<OFMatch> r, short s){
 		rules = r;
         Set<Flow> flowset = new HashSet<Flow>();
 		flows = Collections.synchronizedSet(flowset);
 		flowcount = 0;
-		this.speed = speed;
+		speed = s;
         swport = null;
 		avgdistance = 0;
 		policyid = this.hashCode();
@@ -46,12 +42,37 @@ public class Policy {
 		return this.rules;
 	}
 	
+	
+	private int getOFMatchHashCode(OFMatch match){
+		int prime = 131;
+		int result = 1;
+		int wildcard = match.getWildcards();
+		result = result*prime + match.getNetworkTypeOfService();
+		if(!((wildcard & OFMatch.OFPFW_IN_PORT) == OFMatch.OFPFW_IN_PORT)) result = result*prime + match.getInputPort();
+		if(!((wildcard & OFMatch.OFPFW_DL_VLAN) == OFMatch.OFPFW_DL_VLAN)) result = result*prime + match.getDataLayerVirtualLan();
+		if(!((wildcard & OFMatch.OFPFW_DL_SRC) == OFMatch.OFPFW_DL_SRC)) result = result*prime + Arrays.hashCode(match.getDataLayerSource());
+		if(!((wildcard & OFMatch.OFPFW_DL_DST) == OFMatch.OFPFW_DL_DST)) result = result*prime + Arrays.hashCode(match.getDataLayerDestination());
+		if(!((wildcard & OFMatch.OFPFW_DL_TYPE) == OFMatch.OFPFW_DL_TYPE)) result = result*prime + match.getDataLayerType();
+		if(!((wildcard & OFMatch.OFPFW_NW_PROTO) == OFMatch.OFPFW_NW_PROTO)) result = result*prime + match.getNetworkProtocol();
+		if(!((wildcard & OFMatch.OFPFW_TP_SRC) == OFMatch.OFPFW_TP_SRC)) result = result*prime + match.getTransportSource();
+		if(!((wildcard & OFMatch.OFPFW_TP_DST) == OFMatch.OFPFW_TP_DST)) result = result*prime + match.getTransportDestination();
+		
+		int matchSrcMask = match.getNetworkSourceMaskLen();
+		int subnetSrc = match.getNetworkSource() & ((matchSrcMask==0)? 0:0xffffffff << (32-matchSrcMask));
+		result = result*prime + subnetSrc;
+		
+		int matchDstMask = match.getNetworkDestinationMaskLen();
+		int subnetDst = match.getNetworkDestination() & ((matchDstMask==0)? 0:0xffffffff << (32-matchDstMask));
+		result = result*prime + subnetDst;
+
+		return result;
+	}
+	
 	public int hashCode(){
+		int prime = 2521;
 		int result=1;
-		Iterator it = rules.iterator();
-		while(it.hasNext()){
-			OFMatch rule = (OFMatch) it.next();
-			result = result*rule.hashCode();
+		for(OFMatch r:rules){
+			result = result*prime + getOFMatchHashCode(r);
 		}
 		return result;
 	}
