@@ -144,7 +144,7 @@ def delete(json, controller, port, conn):
 		#preserve immutable
 	uid_o = json
 	print "Trying to delete policy %s" % json
-	url = "http://%s:%s/wm/qos/policy/json" % (controller,port)
+	url = "http://%s:%s/wm/ratelimiter/policy/json" % (controller,port)
 	try:
 		#Get all policies from controller
 	  	#name_req = helper.request("GET",url,None)   

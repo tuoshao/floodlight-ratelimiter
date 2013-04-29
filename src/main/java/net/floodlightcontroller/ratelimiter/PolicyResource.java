@@ -84,8 +84,14 @@ public static Logger logger = LoggerFactory.getLogger(PolicyResource.class);
     		return "{\"status\" : \"Error! Could not parse policy, see log for details.\"}";
     	}
     	String status = null;
-		rs.deletePolicy(policy);
-		status = "Type Of Service Service-ID: "+policy.policyid+" Deleted";
+    	if(!rs.checkIfPolicyExists(policy)){
+    		status = "Error! This policy doesn't exist!";
+    		logger.error(status);
+    	}else{
+    		rs.deletePolicy(policy);
+    		status = "Type Of Service Service-ID: "+policy.policyid+" Deleted";
+    	}
+		
  
 		return ("{\"status\" : \"" + status + "\"}");
     }

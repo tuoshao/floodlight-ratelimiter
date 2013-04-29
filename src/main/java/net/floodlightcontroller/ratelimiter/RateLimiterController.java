@@ -739,6 +739,33 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         log.debug("FlowMod hard timeout set to {} seconds", 
                   FLOWMOD_DEFAULT_HARD_TIMEOUT);
     }
+    
+    private void deleteFlowOnSrcSwitch(Flow f){
+    	NodePortTuple src = f.getSrc();
+        OFFlowMod fm =
+                (OFFlowMod) floodlightProvider.getOFMessageFactory()
+                        .getMessage(OFType.FLOW_MOD);
+        long cookie = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
+
+        fm.setIdleTimeout(FLOWMOD_DEFAULT_IDLE_TIMEOUT)
+                .setHardTimeout(FLOWMOD_DEFAULT_HARD_TIMEOUT)
+                .setBufferId(OFPacketOut.BUFFER_ID_NONE)
+                .setCookie(cookie)
+                .setCommand(OFFlowMod.OFPFC_DELETE_STRICT)
+                .setMatch(f.getMatch())
+                .setLengthU(OFFlowMod.MINIMUM_LENGTH);
+
+        fm.getMatch().setInputPort(src.getPortId());
+        IOFSwitch sw = switches.get(src.getNodeId());
+        log.warn("Remove flow on sw" + src.toString());
+        try {
+            sw.write(fm, null);
+            sw.flush();
+        } catch (IOException e) {
+            log.error("Tried to write OFFlowMod to {} but failed: {}",
+                    HexString.toHexString(sw.getId()), e.getMessage());
+        }
+    }
 
 	@Override
 	public synchronized void addPolicy(Policy p) {
@@ -753,30 +780,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                 }
             }
             if (matchpolicy) {
-                NodePortTuple src = f.getSrc();
-                OFFlowMod fm =
-                        (OFFlowMod) floodlightProvider.getOFMessageFactory()
-                                .getMessage(OFType.FLOW_MOD);
-                long cookie = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
-
-                fm.setIdleTimeout(FLOWMOD_DEFAULT_IDLE_TIMEOUT)
-                        .setHardTimeout(FLOWMOD_DEFAULT_HARD_TIMEOUT)
-                        .setBufferId(OFPacketOut.BUFFER_ID_NONE)
-                        .setCookie(cookie)
-                        .setCommand(OFFlowMod.OFPFC_DELETE_STRICT)
-                        .setMatch(f.getMatch())
-                        .setLengthU(OFFlowMod.MINIMUM_LENGTH);
-
-                fm.getMatch().setInputPort(src.getPortId());
-                IOFSwitch sw = switches.get(src.getNodeId());
-                log.warn("Remove flow on sw" + src.toString());
-                try {
-                    sw.write(fm, null);
-                    sw.flush();
-                } catch (IOException e) {
-                    log.error("Tried to write OFFlowMod to {} but failed: {}",
-                            HexString.toHexString(sw.getId()), e.getMessage());
-                }
+				deleteFlowOnSrcSwitch(f);
             }
         }
 	}
@@ -784,7 +788,17 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 	@Override
 	public synchronized void deletePolicy(Policy p) {
 		// TODO Auto-generated method stub
+		Policy policyInStorage = policyStorage.get(p.policyid);
 		policyStorage.remove(p.policyid);
+		if(policyInStorage == null) return;
+		else{
+			for(Flow f:policyInStorage.getFLows()){
+				deleteFlowOnSrcSwitch(f);
+				queueCreaterService.deleteQueue(
+						switches.get(policyInStorage.swport.getSwitchDPID()), 
+						(short) policyInStorage.swport.getPort(), policyInStorage.queue);
+			}
+		}
 	}
 
 	@Override

@@ -108,6 +108,18 @@ make sure you have a service OR a queue defined"""
 # 
 # Author- Ryan Wallner  
 def delete(json,c,p):
+    qos_pusher = "qosmanager.py"
+    pwd = os.getcwd()
+    print pwd
+    try:
+        if (os.path.exists("%s/%s" % (pwd,qos_pusher))):
+            print "Necessary tools confirmed.. %s" % (qos_pusher)
+        else:
+            print "%s/%s does not exist" %(pwd,qos_pusher)
+    except ValueError as e:
+        print "Problem finding tools... %s" % (qos_pusher)
+        print e
+        exit(1)
     cmd = "./qosmanager.py --delete --json '%s' -c %s -p %s " % (json,c,p)
     print cmd
     subprocess.Popen(cmd,shell=True).wait() 
