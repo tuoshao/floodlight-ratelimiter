@@ -117,45 +117,6 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         }
         return true;
     }
-
-    private int costForAllFlows(Policy p, NodePortTuple sp) {
-        if (sp.getPortId() < 0) {
-            /* Don't check negative ports (perhaps for controller connection) */
-            return -1;
-        }
-        log.warn("CHECKING: " + sp.toString());
-        boolean available = true;
-        int routelen = 0;
-        for (Flow f : p.getFLows()) {
-            log.warn("FLOW: " + f.getMatch().toString());
-            Route subr1 = routingEngine.getRoute(f.lastSwExceptPolicy(p).getNodeId(), f.lastSwExceptPolicy(p).getPortId(), sp.getNodeId(), sp.getPortId(), 0);
-            Route subr2 = routingEngine.getRoute(sp.getNodeId(), sp.getPortId(), f.getDst().getNodeId(), f.getDst().getPortId(), 0);
-            if (subr1 == null ||
-                    (subr2 == null && !sp.equals(f.getDst()))) {
-                /* If this switch can't reach either a flow's dst or src, it's not available */
-                available = false;
-                break;
-            }
-
-            routelen += subr1.getPath().size();
-            log.warn("ROUTE 1: " + subr1.toString());
-            if (subr2 != null) {
-                log.warn("ROUTE 2: " + subr2.toString());
-                routelen += subr2.getPath().size();
-            }
-
-            /* No matter whether we find a new switch, we need to remove the queue on the old switch */
-            f.removeQueueForPolicy(p);
-        }
-        /*
-        if (available && routelen < bestroute) {
-            log.warn("FIND A BETTER SW: " + sp.toString());
-            bestsp = sp;
-            bestroute = routelen;
-        }
-        */
-        return 0;
-    }
 	
 	private boolean checkIfPolicyCoexist(Policy p1, Policy p2){
 		for(Flow flowp1:p1.flows){
@@ -198,31 +159,37 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         IDevice dstDevice =
                 IDeviceService.fcStore.
                         get(cntx, IDeviceService.CONTEXT_DST_DEVICE);
+        IDevice srcDevice =
+                IDeviceService.fcStore.
+                        get(cntx, IDeviceService.CONTEXT_SRC_DEVICE);
+
 
         //We can't handle packets with unknown destination
-        if (dstDevice == null) {
+        if (dstDevice == null || srcDevice == null) {
             return false;
         }
 
         SwitchPort[] dstDaps = dstDevice.getAttachmentPoints();
-        if (dstDaps == null) return false;
+        SwitchPort[] srcDaps = srcDevice.getAttachmentPoints();
+        if (dstDaps == null || srcDaps == null) return false;
         SwitchPort dstsw = dstDaps[0];
+        SwitchPort srcsw = srcDaps[0];
 
 		OFMatch match = new OFMatch();
 		match.loadFromPacket(pi.getPacketData(), pi.getInPort());
 
-		Set<Policy> policies = matchPoliciesFromStorage(match);
+        NodePortTuple srctuple = new NodePortTuple(srcsw.getSwitchDPID(), srcsw.getPort());
+        NodePortTuple dsttuple = new NodePortTuple(dstsw.getSwitchDPID(), dstsw.getPort());
+        OFMatch flowmatch = match.clone();
+        flowmatch.setInputPort((short) 0);
+        Flow flow = new Flow(flowmatch, srctuple, dsttuple);
+        flowStorage.put(flow.hashCode(), flow);
+
+        Set<Policy> policies = matchPoliciesFromStorage(match);
         log.warn("This flow matches " + policies.size() + " policies ");
         if(policies.isEmpty()) {
             return false;
         }
-
-        NodePortTuple srctuple = new NodePortTuple(sw.getId(), pi.getInPort());
-        NodePortTuple dsttuple = new NodePortTuple(dstsw.getSwitchDPID(), dstsw.getPort());
-
-        OFMatch flowmatch = match.clone();
-        flowmatch.setInputPort((short) 0);
-        Flow flow = new Flow(flowmatch, srctuple, dsttuple);
 
         for (Policy p : policies) {
             SwitchPort oldsw = p.getSwport();
@@ -254,10 +221,6 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                 }
             }
             addRouteAndEnqueue(sw, pi, cntx, p, flow);
-        }
-
-        if (!flow.getPolicies().isEmpty()) {
-            flowStorage.put(flow.hashCode(), flow);
         }
 
 		return true;
@@ -670,7 +633,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         for (Long s : switches.keySet()) {
             swPolicyTuples.put(s, new HashSet<Policy>());
         }
-    	
+/*
         OFMatch temp_match = new OFMatch(), temp2 = new OFMatch();
         temp_match.setWildcards(~(OFMatch.OFPFW_NW_DST_MASK));
         temp_match.setNetworkDestination(167772164);
@@ -690,7 +653,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         }
         policyStorage.put(Integer.valueOf(temp_policy.hashCode()), temp_policy);
         policyStorage.put(Integer.valueOf(temp2_pol.hashCode()), temp2_pol);
-
+*/
         // read our config options
         Map<String, String> configOptions = context.getConfigParams(this);
         try {
@@ -721,8 +684,43 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 
 	@Override
 	public synchronized void addPolicy(Policy p) {
-		// TODO Auto-generated method stub
 		policyStorage.put(p.policyid, p);
+        for (Flow f : flowStorage.values()) {
+            boolean matchpolicy = false;
+            for (OFMatch m : p.getRules()) {
+                log.warn("Checking new policy: " + m.toString());
+                if (flowBelongsToRule(f.getMatch(), m)) {
+                    matchpolicy = true;
+                    break;
+                }
+            }
+            if (matchpolicy) {
+                NodePortTuple src = f.getSrc();
+                OFFlowMod fm =
+                        (OFFlowMod) floodlightProvider.getOFMessageFactory()
+                                .getMessage(OFType.FLOW_MOD);
+                long cookie = AppCookie.makeCookie(FORWARDING_APP_ID, 0);
+
+                fm.setIdleTimeout(FLOWMOD_DEFAULT_IDLE_TIMEOUT)
+                        .setHardTimeout(FLOWMOD_DEFAULT_HARD_TIMEOUT)
+                        .setBufferId(OFPacketOut.BUFFER_ID_NONE)
+                        .setCookie(cookie)
+                        .setCommand(OFFlowMod.OFPFC_DELETE_STRICT)
+                        .setMatch(f.getMatch())
+                        .setLengthU(OFFlowMod.MINIMUM_LENGTH);
+
+                fm.getMatch().setInputPort(src.getPortId());
+                IOFSwitch sw = switches.get(src.getNodeId());
+                log.warn("Remove flow on sw" + src.toString());
+                try {
+                    sw.write(fm, null);
+                    sw.flush();
+                } catch (IOException e) {
+                    log.error("Tried to write OFFlowMod to {} but failed: {}",
+                            HexString.toHexString(sw.getId()), e.getMessage());
+                }
+            }
+        }
 	}
 
 	@Override

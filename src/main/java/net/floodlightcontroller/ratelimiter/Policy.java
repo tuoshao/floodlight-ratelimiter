@@ -28,6 +28,8 @@ public class Policy {
 		avgdistance = 0;
 		policyid = this.hashCode();
 		priority = 32767;
+        /* TODO debug */
+        queue = 1;
 	}
 	
 	public void addFlow(Flow flow){
