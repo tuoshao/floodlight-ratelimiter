@@ -1,5 +1,6 @@
 package net.floodlightcontroller.ratelimiter;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
@@ -23,7 +24,8 @@ public class Policy {
 
 	public Policy(Set<OFMatch> r, short speed){
 		rules = r;
-		flows = new HashSet<Flow>();
+        Set<Flow> flowset = new HashSet<Flow>();
+		flows = Collections.synchronizedSet(flowset);
 		flowcount = 0;
 		this.speed = speed;
         swport = null;
@@ -72,5 +74,17 @@ public class Policy {
 
     public short getPort() {
         return (short) swport.getPort();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        Policy policy = (Policy) o;
+
+        if (rules != null ? !rules.equals(policy.rules) : policy.rules != null) return false;
+
+        return true;
     }
 }

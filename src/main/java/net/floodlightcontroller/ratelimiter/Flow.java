@@ -2,7 +2,6 @@ package net.floodlightcontroller.ratelimiter;
 
 import java.util.*;
 
-import net.floodlightcontroller.routing.Route;
 import net.floodlightcontroller.topology.NodePortTuple;
 
 import org.openflow.protocol.OFMatch;
@@ -12,51 +11,72 @@ public class Flow {
 	OFMatch match;
     NodePortTuple src;
 	NodePortTuple dst;
-
-    Set<Route> routes;
+    List<Policy> policies;
+    List<NodePortTuple> queues;
     //OFMatch for adding queue on the target switch
-	HashMap<Policy, OFMatch> policies;
+	List<OFMatch> qmatches;
 	
 	public Flow(OFMatch m, NodePortTuple srcNodePort, NodePortTuple dstNodePort){
 		match = m;
-		policies = new HashMap<Policy, OFMatch>();
-		
-        routes = new HashSet<Route>();
+        policies = new ArrayList<Policy>();
+        queues = new ArrayList<NodePortTuple>();
+        qmatches = new ArrayList<OFMatch>();
 		src = srcNodePort;
 		dst = dstNodePort;
 		flowid = this.hashCode();
 	}
+
+    public NodePortTuple lastSwExceptPolicy(Policy p) {
+        for (int i = policies.size()-1; i >= 0; i--) {
+            if (p.hashCode() != policies.get(i).hashCode()) {
+                return queues.get(i);
+            }
+        }
+        return src;
+    }
+
+    public void removeQueueForPolicy(Policy p) {
+        int index = policies.indexOf(p);
+        if (index >= 0) {
+            queues.remove(index);
+            qmatches.remove(index);
+            policies.remove(index);
+        }
+    }
 	
-	public Set<Policy> getPolicies(){
-		return policies.keySet();
+	public List<Policy> getPolicies(){
+		return policies;
 	}
 
-    public void addPolicy(Policy policy) {
-        addPolicy(policy, null);
-    }
-	
-	public void addPolicy(Policy policy, OFMatch qmatch){
-		policies.put(policy, qmatch);
+
+	public void addPolicy(Policy p, OFMatch qmatch){
+        if (policies.contains(p)) {
+            int index = policies.indexOf(p);
+            queues.set(index, new NodePortTuple(p.getDpid(), p.getPort()));
+            qmatches.set(index, qmatch);
+        } else {
+            policies.add(p);
+            queues.add(new NodePortTuple(p.getDpid(), p.getPort()));
+            qmatches.add(qmatch);
+        }
 	}
 
-    public void clearRoute() {
-        routes.clear();
-    }
-
-    public void addRoute(Route route) {
-        routes.add(route);
-    }
-	
 	public int hashCode(){
 		return match.hashCode();
 	}
 
     public void setQmatch(Policy p, OFMatch qm) {
-        policies.put(p, qm);
+        int index = policies.indexOf(p);
+        qmatches.set(index, qm);
     }
 
     public OFMatch getQmatch(Policy p) {
-        return policies.get(p);
+        int index = policies.indexOf(p);
+        return qmatches.get(index);
+    }
+
+    public List<OFMatch> getQmatches() {
+        return qmatches;
     }
 
     public NodePortTuple getSrc() {
@@ -71,7 +91,15 @@ public class Flow {
         return match;
     }
 
-    public Set<Route> getRoutes() {
-		return routes;
-	}
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        Flow flow = (Flow) o;
+
+        if (!match.equals(flow.match)) return false;
+
+        return true;
+    }
 }
