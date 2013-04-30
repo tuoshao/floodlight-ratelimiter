@@ -473,13 +473,42 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
     private int canFlowPassSw(Flow flow, NodePortTuple sw, Policy p) {
         NodePortTuple src = flow.lastSwExceptPolicy(p);
         NodePortTuple dst = flow.getDst();
-        Route subr1 = routingEngine.getRoute(src.getNodeId(), src.getPortId(), sw.getNodeId(), sw.getPortId(), 0);
-        Route subr2 = routingEngine.getRoute(sw.getNodeId(), sw.getPortId(), dst.getNodeId(), dst.getPortId(), 0);
-        if (subr1 == null ||
-                (subr2 == null && !sw.equals(dst))) {
+        log.warn("flow lastsrc: " + src.toString());
+        log.warn("flow dst: " + dst.toString());
+        log.warn("sw: " + sw.toString());
+
+        Set<Link> links1 = linkService.getPortLinks().get(src);
+        if (links1 == null) return -1;
+        NodePortTuple nexts1 = null;
+        for (Link l : links1) {
+            if (l.getSrc() == src.getNodeId() && l.getSrcPort() == src.getPortId()) {
+                nexts1 = new NodePortTuple(l.getDst(), l.getDstPort());
+                break;
+            }
+        }
+        Route subr1 = routingEngine.getRoute(nexts1.getNodeId(), nexts1.getPortId(), sw.getNodeId(), sw.getPortId(), 0);
+        if (sw.equals(dst) && subr1 != null) {
+            return subr1.getPath().size();
+        }
+
+        Set<Link> links = linkService.getPortLinks().get(sw);
+        if (links == null) return -1;
+        NodePortTuple nexts = null;
+        for (Link l : links) {
+            if (l.getSrc() == sw.getNodeId() && l.getSrcPort() == sw.getPortId()) {
+                nexts = new NodePortTuple(l.getDst(), l.getDstPort());
+                break;
+            }
+        }
+        Route subr2 = routingEngine.getRoute(nexts.getNodeId(), nexts.getPortId(), dst.getNodeId(), dst.getPortId(), 0);
+        if (subr1 == null || subr2 == null) {
             /* If this switch can't reach either a flow's dst or src, it's not available */
+            log.warn("no route");
             return -1;
         }
+        log.warn("route1" + subr1.getPath().toString());
+        log.warn("route2" + subr2.getPath().toString());
+
 
         /* Check if incoming route and outgoing route shares the same link */
         if (subr2 != null) {
@@ -496,12 +525,14 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                 }
             }
             for (NodePortTuple npt : path1) {
-                if (path1.contains(npt)) {
+                if (path2.contains(npt)) {
+                    log.warn("no route(overlap)" + npt.toString());
                     return -1;
                 }
             }
             for (NodePortTuple npt : path2) {
-                if (path2.contains(npt)) {
+                if (path1.contains(npt)) {
+                    log.warn("no route(overlap)" + npt.toString());
                     return -1;
                 }
             }
@@ -511,11 +542,14 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         if (subr2 != null) {
             routelen += subr2.getPath().size();
         }
+        log.warn("has route");
         return routelen;
     }
 
     /* This function checks if the policy needs to change the switch */
 	private synchronized boolean findNewSwitch(Policy p, Flow flow) {
+        log.warn("Find new switch for " + p.getRules().toString() + flow.getMatch().toString());
+        p.addFlow(flow);
         NodePortTuple src, dst, next;
         src = flow.lastSwExceptPolicy(p);
         dst = flow.getDst();
@@ -523,18 +557,17 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         if (r == null) {
             /* TODO There is no route for this flow, should return error */
             return false;
-        } else if (p.getFLows().isEmpty()) {
+        } else if (p.getFLows().isEmpty() || p.getSwport() == null) {
             /* If this is the first flow matched by this policy, we add a queue at the first hop */
             log.warn("First flow of this matched policy");
-            p.addFlow(flow);
             next = r.getPath().get(1);
             if (isSwitchAvaiForPolicy(p, next)) {
                 p.setSwport(new SwitchPort(next.getNodeId(), next.getPortId()));
                 return true;
             }
-        } else {
-            p.addFlow(flow);
+        } else if (p.getSwport() != null) {
             NodePortTuple qs = new NodePortTuple(p.getDpid(), p.getPort());
+            log.warn("Check old sw:" + qs.toString());
             if (r.getPath().contains(qs)) {
                 /* If the new flow's default route contains the queue switch, there is no need to change it */
                 return false;
@@ -542,18 +575,18 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                 return false;
             }
         }
-
+        log.warn("Need to find a new switch");
         /* TODO If there's no overlapped switch, we need to find a new switch that can satisfy all flows (IMPORTANT!!!) */
         NodePortTuple bestsp = null;
         int bestroute = Integer.MAX_VALUE;
         for (IOFSwitch sw : switches.values()) {
             for (OFPhysicalPort po : sw.getPorts()) {
                 NodePortTuple sp = new NodePortTuple(sw.getId(), po.getPortNumber());
-                if (!isSwitchAvaiForPolicy(p, sp)) {
-                    continue;
-                }
                 if (sp.getPortId() < 0) {
                     /* Don't check negative ports (perhaps for controller connection) */
+                    continue;
+                }
+                if (!isSwitchAvaiForPolicy(p, sp)) {
                     continue;
                 }
                 boolean available = true;
@@ -567,10 +600,15 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                         }
                         else routelen += rl;
                     }
-                    if (available && routelen < bestroute) {
-                        bestsp = sp;
-                        bestroute = routelen;
-                    }
+                }
+                if (available) {
+                    log.warn(sp.toString() + " is OK");
+                } else {
+                    log.warn(sp.toString() + " is not OK");
+                }
+                if (available && routelen < bestroute) {
+                    bestsp = sp;
+                    bestroute = routelen;
                 }
             }
         }
@@ -601,11 +639,10 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                 synchronized (p.getFLows()) {
                     p.getFLows().remove(flow);
                 }
-                /*
                 if (p.getFLows().isEmpty()) {
-                    queueCreaterService.deleteQueue(switches.get(p.getDpid()), p.getPort(), p.queue);
+                    //queueCreaterService.deleteQueue(switches.get(p.getDpid()), p.getPort(), p.queue);
+                    p.setSwport(null);
                 }
-                */
             }
             log.warn("Remove Flow: " + flow.getMatch().toString());
             flowStorage.remove(flow);
@@ -689,8 +726,8 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         OFMatch temp_match = new OFMatch(), temp2 = new OFMatch();
         temp_match.setWildcards(~(OFMatch.OFPFW_NW_DST_MASK));
         temp_match.setNetworkDestination(167772163);
-        temp2.setWildcards(~(OFMatch.OFPFW_NW_DST_MASK));
-        temp2.setNetworkDestination(167772162);
+        temp2.setWildcards(~(OFMatch.OFPFW_NW_SRC_MASK));
+        temp2.setNetworkSource(167772161);
 
         Set<OFMatch> temp_policyset = new HashSet<OFMatch>(), temp2_set = new HashSet<OFMatch>();
         temp_policyset.add(temp_match);
@@ -787,6 +824,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 		else {
 			for(Flow f:policyInStorage.getFLows()){
 				deleteFlowOnSrcSwitch(f);
+                f.removeQueueForPolicy(p);
 			}
             queueCreaterService.deleteQueue(
                     switches.get(policyInStorage.swport.getSwitchDPID()),
