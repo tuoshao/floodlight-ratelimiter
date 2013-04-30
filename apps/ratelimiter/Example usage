@@ -6,3 +6,6 @@ sudo python ratelimiter.py -a -s 1 -j '{"ingress-port": "2","ip-src":"10.0.0.2",
 
 sudo python ratelimiter.py -d -s 1 -j '{"ingress-port": "1","ip-src":"10.0.0.1", "ip-dst":"10.0.0.2", "sw": "00:00:00:00:00:00:00:01","queue":"1","enqueue-port":"2"}' -c 172.16.25.
 
+sudo python ratelimiter.py -a -j '{"rules":[{"ip-dst":"10.0.0.4"}], "speed":10}' -c 172.16.25.1
+
+

@@ -459,8 +459,8 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                 .setCookie(cookie)
                 .setCommand(flowModCommand)
                 .setActions(actions)
-                .setIdleTimeout((short)5)  // infinite
-                .setHardTimeout((short) 0)  // infinite
+                .setIdleTimeout(FLOWMOD_DEFAULT_IDLE_TIMEOUT)  // infinite
+                .setHardTimeout(FLOWMOD_DEFAULT_HARD_TIMEOUT)  // infinite
                 .setBufferId(OFPacketOut.BUFFER_ID_NONE)
                 .setFlags(OFFlowMod.OFPFF_SEND_FLOW_REM)
                         //.setOutPort(OFPort.OFPP_NONE.getValue())
@@ -692,7 +692,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
             }
         }
 
-        OFMatch temp_match = new OFMatch(), temp2 = new OFMatch();
+        /*OFMatch temp_match = new OFMatch(), temp2 = new OFMatch();
         temp_match.setWildcards(~(OFMatch.OFPFW_NW_DST_MASK));
         temp_match.setNetworkDestination(167772163);
         temp2.setWildcards(~(OFMatch.OFPFW_NW_DST_MASK));
@@ -710,7 +710,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         	log.info(match.toString());
         }
         policyStorage.put(Integer.valueOf(temp_policy.hashCode()), temp_policy);
-        policyStorage.put(Integer.valueOf(temp2_pol.hashCode()), temp2_pol);
+        policyStorage.put(Integer.valueOf(temp2_pol.hashCode()), temp2_pol);*/
 
         // read our config options
         Map<String, String> configOptions = context.getConfigParams(this);
