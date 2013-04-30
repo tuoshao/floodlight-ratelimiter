@@ -1,16 +1,7 @@
 package net.floodlightcontroller.ratelimiter;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import net.floodlightcontroller.core.util.AppCookie;
 import net.floodlightcontroller.linkdiscovery.ILinkDiscoveryService;
@@ -119,20 +110,22 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 
         Set<Integer> usedQueue = new HashSet<Integer>();
         pset = swPolicyTuples.get(sw);
-        for (Policy ponsw : pset) {
-            if (ponsw.getSwport() == null || ponsw.equals(p)) {
-                /* TODO error-prone */
-                pset.remove(ponsw);
-                continue;
+        synchronized (pset) {
+            for (Policy ponsw : pset) {
+                if (ponsw.getSwport() == null || ponsw.equals(p)) {
+                    /* TODO error-prone */
+                    pset.remove(ponsw);
+                    continue;
+                }
+                ArrayList<OFMatch> ms1 = new ArrayList<OFMatch>(ponsw.getRules());
+                ArrayList<OFMatch> ms2 = new ArrayList<OFMatch>(p.getRules());
+                log.warn("Check policies: " + ms1.get(0) + ms2.get(0));
+                if (checkIfPolicyCoexist(p, ponsw)) {
+                    log.warn("overlap flow exists");
+                    return false;
+                }
+                usedQueue.add(ponsw.getQueue());
             }
-            ArrayList<OFMatch> ms1 = new ArrayList<OFMatch>(ponsw.getRules());
-            ArrayList<OFMatch> ms2 = new ArrayList<OFMatch>(p.getRules());
-            log.warn("Check policies: " + ms1.get(0) + ms2.get(0));
-            if (checkIfPolicyCoexist(p, ponsw)) {
-                log.warn("overlap flow exists");
-                return false;
-            }
-            usedQueue.add(ponsw.getQueue());
         }
 
         if (pset.size() >= NQUEUE) {
@@ -522,7 +515,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
     }
 
     /* This function checks if the policy needs to change the switch */
-	private boolean findNewSwitch(Policy p, Flow flow) {
+	private synchronized boolean findNewSwitch(Policy p, Flow flow) {
         NodePortTuple src, dst, next;
         src = flow.lastSwExceptPolicy(p);
         dst = flow.getDst();
@@ -688,7 +681,8 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         for (IOFSwitch s : switches.values()) {
             for (OFPhysicalPort po : s.getPorts()) {
                 NodePortTuple nnpt = new NodePortTuple(s.getId(), po.getPortNumber());
-                swPolicyTuples.put(nnpt, new HashSet<Policy>());
+                Set<Policy> concurSet = Collections.synchronizedSet(new HashSet<Policy>());
+                swPolicyTuples.put(nnpt, concurSet);
             }
         }
 
@@ -789,16 +783,20 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 	public synchronized void deletePolicy(Policy p) {
 		// TODO Auto-generated method stub
 		Policy policyInStorage = policyStorage.get(p.policyid);
-		policyStorage.remove(p.policyid);
-		if(policyInStorage == null) return;
-		else{
+        if(policyInStorage == null) return;
+		else {
 			for(Flow f:policyInStorage.getFLows()){
 				deleteFlowOnSrcSwitch(f);
-				queueCreaterService.deleteQueue(
-						switches.get(policyInStorage.swport.getSwitchDPID()), 
-						(short) policyInStorage.swport.getPort(), policyInStorage.queue);
 			}
-		}
+            queueCreaterService.deleteQueue(
+                    switches.get(policyInStorage.swport.getSwitchDPID()),
+                    (short) policyInStorage.swport.getPort(), policyInStorage.queue);
+            NodePortTuple queueport = new NodePortTuple(policyInStorage.getDpid(), policyInStorage.getPort());
+            if (swPolicyTuples.get(queueport) != null) {
+                swPolicyTuples.get(queueport).remove(p);
+            }
+            policyStorage.remove(policyInStorage.policyid);
+        }
 	}
 
 	@Override
