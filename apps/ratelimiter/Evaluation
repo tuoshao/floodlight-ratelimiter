@@ -1,0 +1,36 @@
+Evaluation
+
+
+1. flow delay
+ratio between the number of hops in current path and that in shortest path
+possible solution: calculating these two different paths in the controller
+				   generateing ping flows along with actual flows(or just ping flows)
+comparison: simple algorithm
+	    algorithm aiming at placing ratelimiters on flows' original routes or close to original routes
+scenario: 
+best case: all ratelimiters are on the the flow's original route
+worst case: all available switches to place ratelimiter are far away from the route.
+
+2. internal traffic
+sum of packets per link(udp)
+possible solution: Instead of get actual packets statistics, we can calculate it with actual sending rate, limited rate and the route we got from the controller.
+comparison: no ratelimiting at all
+			simple algorithm only find available switches 
+			algorithm addressing the distance from host and probably place the most strict policy first
+scenario:
+best case: all ratelimiters are close to the previous ratelimiters of flows.
+worst case: the opposite
+
+3. control overhead
+	a. delay of processing a packet-in packet
+	possible solution: calculate it in the controller
+	scenario: 
+	comparison: the delay without this ratelimitercontroller
+	b. control traffic sent per packet-in (factors: number of affected policies, number of switches in the network)
+	ps: 1) number of packet-in packets when adding or deleting a policy(propotional to number of flows one policy has)
+	    2) number of the flowmod messages sent to the switches per packet-in packet
+	scenario:
+	comparison: 
+	c. coverge time of affected flows
+	ps: iperf statistics (in seconds)
+	    ping flow
