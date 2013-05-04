@@ -48,8 +48,11 @@ public class Flow {
 		return policies;
 	}
 
+    public List<NodePortTuple> getQueues() {
+        return queues;
+    }
 
-	public void addPolicy(Policy p, OFMatch qmatch){
+    public void addPolicy(Policy p, OFMatch qmatch){
         if (policies.contains(p)) {
             int index = policies.indexOf(p);
             queues.set(index, new NodePortTuple(p.getDpid(), p.getPort()));
@@ -60,6 +63,12 @@ public class Flow {
             qmatches.add(qmatch);
         }
 	}
+
+    public void addPolicyAtIndex(Policy p, OFMatch qmatch, int index) {
+        policies.add(index, p);
+        queues.add(index, new NodePortTuple(p.getDpid(), p.getPort()));
+        qmatches.add(index, qmatch);
+    }
 
 	public int hashCode(){
 		return match.hashCode();
