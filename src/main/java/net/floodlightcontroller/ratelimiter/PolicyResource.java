@@ -197,7 +197,7 @@ public static Logger logger = LoggerFactory.getLogger(PolicyResource.class);
     						if(field != null){
     							short mask = (short)field.getValueAsInt();
     							mask = mask>32?32:mask;
-    							wildcard = wildcard & (~OFMatch.OFPFW_NW_SRC_MASK | (mask << OFMatch.OFPFW_NW_SRC_SHIFT));
+    							wildcard = wildcard | (~OFMatch.OFPFW_NW_SRC_MASK | ((32-mask) << OFMatch.OFPFW_NW_SRC_SHIFT));
     						}
     						field = node.get("ip-dst");
     						if(field != null){
@@ -208,7 +208,7 @@ public static Logger logger = LoggerFactory.getLogger(PolicyResource.class);
     						if(field != null){
     							short mask = (short)field.getValueAsInt();
     							mask = mask>32?32:mask;
-    							wildcard = wildcard & (~OFMatch.OFPFW_NW_DST_MASK | (mask << OFMatch.OFPFW_NW_DST_SHIFT));
+    							wildcard = wildcard | (~OFMatch.OFPFW_NW_DST_MASK | ((32-mask) << OFMatch.OFPFW_NW_DST_SHIFT));
     						}
     						rule.setWildcards(wildcard);
     						rules.add(rule);

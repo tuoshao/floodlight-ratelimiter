@@ -286,7 +286,7 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule {
 
                             pushRoute(route, match, wildcard_hints, pi, sw.getId(), cookie, 
                                       cntx, requestFlowRemovedNotifn, false,
-                                      OFFlowMod.OFPFC_ADD);
+                                      OFFlowMod.OFPFC_MODIFY);
                         }
                     }
                     iSrcDaps++;

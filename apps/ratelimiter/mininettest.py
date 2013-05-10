@@ -1,7 +1,7 @@
 from mininet.net import Mininet
 from mininet.topo import Topo
 from mininet.topolib import TreeTopo
-#from ripl.dctopo import FatTreeTopo
+from ripl.dctopo import FatTreeTopo
 from time import sleep
 from mininet.node import RemoteController
 from mininet.node import UserSwitch
@@ -39,39 +39,20 @@ class Rect( Topo ):
         self.addLink( s3, h3 )
         self.addLink( s4, h4 )
         
-def iperf_server(host):
-    #host.sendCmd('iperf -s -i 0.5 -y c -x c > test/' + host.name + '_iperf_server.csv')
-    #output = open('test/'+host.name+'_iperf_server.csv', 'w+')
-    #p1 = host.popen(['iperf', '-s', '-i', '0.5', '-y', 'c', '-x', 'c'])
-    #p1.communicate()
-    #host.pexec('iperf -s -i 0.5 -y c -x c > test/' + host.name + '_iperf_server.csv')
-    #host.popen('iperf -s -t %d -i 0.5 -y c -x c | cut -d \',\' -f1,8,9 > test/%s_iperf_server.csv'%(duration, host.name), shell = True)
-    host.popen('iperf -s -i 0.5 -y c -x c > test/%s_iperf_server.csv'%(host.name), shell = True)
-    #host.popen('iperf -s -t %d -i 0.5 -y c -x c > test/%s_iperf_server.csv'%(duration, host.name), shell = True)
+def iperf_server_tcp(host):
+    host.popen('iperf -s -i 0.5 -y c -x c > test/%s_iperf_server_tcp.csv'%(host.name), shell = True)
     
-def iperf_client(srchost, dsthost, duration):
-    #srchost.sendCmd('iperf -c ' , dsthost.IP() , ' -t ' , duration , ' -i 0.5 -y c -x c > test/' 
-    #                + srchost.name + '_to_' + dsthost.name + '_iperf_client.csv')
-    #srchost.pexec('iperf -c ' + dsthost.IP() + ' -t ' + str(duration) + ' -i 0.5 -y c -x c | cut -d \',\' -f1,8,9> test/' 
-    #                + srchost.name + '_to_' + dsthost.name + '_iperf_client.csv')
+def iperf_server_udp(host):
+    host.popen('iperf -s -i 0.5 -y c -x c -u > test/%s_iperf_server_tcp.csv'%(host.name), shell = True)
     
-    #output = open('test/'+srchost.name+'_to_'+dsthost.name+'_iperf_client.csv', 'w+')
-    #p1 = srchost.popen(['iperf', '-c', dsthost.IP(), '-t', '10', '-i', '0.5', '-y', 'c', '-x', 'c'])
-    srchost.popen('iperf -c %s -t %d -i 0.5 -y c -x c | cut -d \',\' -f1,8,9 > test/%s_to_%s_iperf_client.csv'%(dsthost.IP(), duration, srchost.name, dsthost.name), shell = True)
-    #p1.communicate()
-    return
+def iperf_client_tcp(srchost, dsthost, duration, windowsize):
+    srchost.popen('iperf -c %s -t %d -i 0.5 -y c -x c -w %s| cut -d \',\' -f1,8,9 > test/%s_to_%s_iperf_client.csv'%(dsthost.IP(), duration, windowsize, srchost.name, dsthost.name), shell = True)
+    
+def iperf_client_udp(srchost, dsthost, duration, bandwidth):
+    srchost.popen('iperf -c %s -t %d -i 0.5 -y c -x c -b %s| cut -d \',\' -f1,8,9 > test/%s_to_%s_iperf_client.csv'%(dsthost.IP(), duration, windowsize, srchost.name, dsthost.name), shell = True)
 
 def ping_client(srchost, dsthost, duration):
-    #srchost.sendCmd('ping ' , dsthost.IP() , ' -t ' , duration , 
-    #                ' -D | grep "from" | cut -d ' ' -f1,8 | cut -d \'[\' -f2 | tr -s "] time=" \',\' > test/'
-    #                + srchost.name + '_to_' + dsthost.name + '_ping.csv')
-    #srchost.sendCmd('ping ' , dsthost.IP() , ' -t ' , duration, ' > test/1.csv')  
-    #srchost.pexec('ping ' + dsthost.IP() + ' -t ' + str(duration) + 
-    #                ' -D | grep "from" | cut -d ' ' -f1,8 | cut -d \'[\' -f2 | tr -s "] time=" \',\' > test/'
-    #                + srchost.name + '_to_' , dsthost.name + '_ping.csv')
-    srchost.popen('ping %s -w %d -D | grep "from"| cut -d \' \' -f1,8 | cut -d \'[\' -f2 | tr -s "] time=" \',\' > test/%s_to_%s_ping.csv'%(dsthost.IP(), duration, srchost.name, dsthost.name), shell=True)
-    #srchost.popen('ping %s -t %d -D > test/%s_to_%s_ping.csv'%(dsthost.IP(), duration, srchost.name, dsthost.name), shell=True)
-    return
+    srchost.popen('ping %s -w %d -D -i 0.5 | grep "from"| cut -d \' \' -f1,8 | cut -d \'[\' -f2 | tr -s "] time=" \',\' > test/%s_to_%s_ping.csv'%(dsthost.IP(), duration, srchost.name, dsthost.name), shell=True)
 
 def add_policy(json):
     cmd = "./ratelimiter.py --add --json '%s' -c %s -p %s " % (json,ip,httpport)
@@ -79,7 +60,104 @@ def add_policy(json):
 def delete_policy(json):
     cmd = "./ratelimiter.py --delete --json '%s' -c %s -p %s " % (json,ip,httpport)
     subprocess.Popen(cmd,shell=True)
-def test():
+    
+def general_rule_test():
+    topo = FatTreeTopo()
+    net = Mininet(topo=topo, switch=UserSwitch, controller=lambda name:RemoteController(name, ip=ip), listenPort=port)
+    print len(net.hosts)
+    net.start()
+    print "mininet started" 
+    sleep(15) 
+    print "iperf test start"
+    add_policy('{"rules":[{"ip-src":"10.0.0.2"}, {"ip-src":"10.0.0.3"}, {"ip-src":"10.2.1.2"}, {"ip-src":"10.3.1.3"}], "speed":30}')
+    h1 = net.getNodeByName('0_0_2')
+    h2 = net.getNodeByName('0_0_3')
+    h3 = net.getNodeByName('0_1_2')
+    h4 = net.getNodeByName('0_1_3')
+    h5 = net.getNodeByName('1_0_2')
+    h6 = net.getNodeByName('1_0_3')
+    h7 = net.getNodeByName('2_1_2')
+    h8 = net.getNodeByName('3_1_3')
+    #setup all servers
+    print "server start"
+    iperf_server_tcp(h5)
+    iperf_server_tcp(h6)
+    iperf_server_tcp(h3)
+    #iperf_server_tcp(h4)
+    #setup all clients
+    print "client start"
+    sleep(10)
+    iperf_client_tcp(h1, h5, 30, '2K')
+    ping_client(h1, h5, 30)
+    sleep(10)
+    iperf_client_tcp(h2, h6, 20, '2K')
+    ping_client(h2, h6, 20)
+    sleep(10)
+    iperf_client_tcp(h7, h3, 10, '2K')
+    ping_client(h7, h3, 10)
+    #iperf_client_tcp(h8, h4, 60, '2K')
+    print "ping start"
+    #ping_client(h8, h4, 60)
+    #h1.cmd('iperf -c ', h3.IP(), ' -t 10 -i 1')
+    #sleep(10)
+    #add_policy('{"rules":[{"ip-src":"10.0.0.2"}, {"ip-src":"10.0.0.3"}, {"ip-src":"10.2.1.2"}, {"ip-src":"10.3.1.3"}], "speed":50}')
+    #sleep(10)
+    #add_policy('{"rules":[{"ip-src":"10.0.0.2"}, {"ip-src":"10.0.0.3"}], "speed":10}')
+    #sleep(10)
+    #delete_policy('{"rules":[{"ip-src":"10.0.0.2"}, {"ip-src":"10.0.0.3"}], "speed":10}')
+    #sleep(10)
+    #delete_policy('{"rules":[{"ip-src":"10.0.0.2"}, {"ip-src":"10.0.0.3"}, {"ip-src":"10.2.1.2"}, {"ip-src":"10.3.1.3"}], "speed":50}')
+    sleep(20)
+    print "iperf test end"
+    net.stop()
+    
+def simulation_test():
+    topo = FatTreeTopo()
+    net = Mininet(topo=topo, switch=UserSwitch, controller=lambda name:RemoteController(name, ip=ip), listenPort=port)
+    print len(net.hosts)
+    net.start()
+    print "mininet started" 
+    sleep(15) 
+    print "iperf test start"
+    h1 = net.getNodeByName('0_0_2')
+    h2 = net.getNodeByName('0_0_3')
+    h3 = net.getNodeByName('0_1_2')
+    h4 = net.getNodeByName('0_1_3')
+    h5 = net.getNodeByName('1_0_2')
+    h6 = net.getNodeByName('1_0_3')
+    h7 = net.getNodeByName('2_1_2')
+    h8 = net.getNodeByName('3_1_3')
+    #setup all servers
+    print "server start"
+    iperf_server_tcp(h5)
+    iperf_server_tcp(h6)
+    iperf_server_tcp(h3)
+    iperf_server_tcp(h4)
+    #setup all clients
+    print "client start"
+    iperf_client_tcp(h1, h5, 60, '2K')
+    iperf_client_tcp(h2, h6, 60, '2K')
+    iperf_client_tcp(h7, h3, 60, '2K')
+    iperf_client_tcp(h8, h4, 60, '2K')
+    print "ping start"
+    ping_client(h1, h5, 60)
+    ping_client(h2, h6, 60)
+    ping_client(h7, h3, 60)
+    ping_client(h8, h4, 60)
+    #h1.cmd('iperf -c ', h3.IP(), ' -t 10 -i 1')
+    sleep(10)
+    add_policy('{"rules":[{"ip-src":"10.0.0.2"}, {"ip-src":"10.0.0.3"}, {"ip-src":"10.2.1.2"}, {"ip-src":"10.3.1.3"}], "speed":50}')
+    sleep(10)
+    add_policy('{"rules":[{"ip-src":"10.0.0.2"}, {"ip-src":"10.0.0.3"}], "speed":10}')
+    sleep(10)
+    delete_policy('{"rules":[{"ip-src":"10.0.0.2"}, {"ip-src":"10.0.0.3"}], "speed":10}')
+    sleep(10)
+    delete_policy('{"rules":[{"ip-src":"10.0.0.2"}, {"ip-src":"10.0.0.3"}, {"ip-src":"10.2.1.2"}, {"ip-src":"10.3.1.3"}], "speed":50}')
+    sleep(20)
+    print "iperf test end"
+    net.stop()
+    
+def small_test():
     topo = Rect()
     net = Mininet(topo=topo, switch=UserSwitch, controller=lambda name:RemoteController(name, ip=ip), listenPort=port)
     print len(net.hosts)
@@ -109,7 +187,8 @@ def test():
     net.stop()
     
 if __name__ == '__main__':
-    test()
+    #general_rule_test()
+    simulation_test()
     
 #tree = FatTreeTopo(k=4)
 #topo = TreeTopo(depth=2, fanout=4)

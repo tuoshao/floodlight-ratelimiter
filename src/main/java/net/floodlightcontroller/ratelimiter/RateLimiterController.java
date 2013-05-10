@@ -271,7 +271,12 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                 addRouteByPolicyAndFlow(sw, pi, cntx, p, flow, newSw.get(flow));
             } else {
                 ArrayList<Integer> newflowarray = canFlowRouteToSw(flow, new NodePortTuple(p.getDpid(), p.getPort()), p);
-                addRouteByPolicyAndFlow(sw, pi, cntx, p, flow, newflowarray.get(0));
+                if(newflowarray != null){
+                	addRouteByPolicyAndFlow(sw, pi, cntx, p, flow, newflowarray.get(0));
+                } else {
+                	log.warn("Cant route to switch, delete policy|||||||||||||");
+                	deletePolicy(p);
+                }
             }
         }
 
@@ -382,8 +387,10 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         IOFSwitch sw = switches.get(p.getDpid());
         if(flowModCommand != OFFlowMod.OFPFC_DELETE_STRICT) {
             queueCreaterService.createQueue(sw, p.getPort(), p.queue, p.speed);
+            log.warn("Create queue on " + sw.toString() + p.getSwport().toString());
         } else {
             queueCreaterService.deleteQueue(sw, p.getPort(), p.queue);
+            log.warn("Delete queue on " + sw.toString() + p.getSwport().toString());
         }
 
         OFFlowMod fm = new OFFlowMod();
@@ -448,9 +455,11 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 
         Route subr1 = routingEngine.getRoute(src.getNodeId(), src.getPortId(), sw.getNodeId(), sw.getPortId(), 0);
         if (subr1 == null) {
+            log.warn("no route 1");
             return null;
         } else if (subr1.getPath().get(0).equals(subr1.getPath().get(1))) {
             /* can't go back to the inport */
+            log.warn("cant go back to inport1");
             return null;
         }
 
@@ -465,15 +474,18 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
             if (sw.equals(dst)) {
                 return set1;
             } else {
+            	log.warn("!equal dst");
                 return null;
             }
         }
 
         Route subr2 = routingEngine.getRoute(next.getNodeId(), next.getPortId(), dst.getNodeId(), dst.getPortId(), 0);
         if (subr2 == null) {
+            log.warn("no route 2");
             return null;
         } else if (subr2.getPath().get(0).equals(subr2.getPath().get(1))) {
             /* can't go back to the inport */
+            log.warn("cant go back to inport" + subr2.getPath().get(0).toString() + subr2.getPath().get(1).toString());
             return null;
         }
 
@@ -486,7 +498,10 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         for (NodePortTuple np : set1) {
             /* check if there is any incoming switch port tuple reused */
             /* maybe this is redundant */
-            if (set2.contains(np)) return null;
+            if (set2.contains(np)) {
+            	log.warn("redundant");
+            	return null;
+            }
         }
 
         set1.addAll(set2);
@@ -511,7 +526,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                 log.warn("insert sw at " + 0 + " overhead " + srcs.size());
                 return ret;
             } else {
-                log.warn("fail because from " + src.toString() + " to " + flow.getDst().toString());
+                log.warn("fail because from " + src.toString() + " to " + flow.getDst().toString() + " via " + sw.toString());
                 return null;
             }
         } else {
@@ -745,11 +760,14 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
                 p.getFLows().remove(flow);
                 if (p.getFLows().isEmpty()) {
                     //queueCreaterService.deleteQueue(switches.get(p.getDpid()), p.getPort(), p.queue);
-                    Set<Policy> setp = swPolicyTuples.get(new NodePortTuple(p.getDpid(), p.getPort()));
-                    if (setp != null) {
-                        setp.remove(p);
-                    }
-                    p.setSwport(null);
+                	if(p.getSwport() != null) {
+	                    Set<Policy> setp = swPolicyTuples.get(new NodePortTuple(p.getDpid(), p.getPort()));
+	                    if (setp != null) {
+	                        setp.remove(p);
+	                    }
+	                    p.setSwport(null);
+                		
+                	}
                 }
             }
             log.warn("Remove Flow: " + flow.getMatch().toString());
@@ -856,7 +874,7 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
         try {
             String idleTimeout = configOptions.get("idletimeout");
             if (idleTimeout != null) {
-                FLOWMOD_DEFAULT_IDLE_TIMEOUT = Short.parseShort(idleTimeout);
+                FLOWMOD_DEFAULT_IDLE_TIMEOUT = 2;//Short.parseShort(idleTimeout);
             }
         } catch (NumberFormatException e) {
             log.warn("Error parsing flow idle timeout, " +
@@ -933,13 +951,16 @@ public class RateLimiterController extends Forwarding implements RateLimiterServ
 				deleteFlowOnSrcSwitch(f);
                 f.removeQueueForPolicy(p);
 			}
-            queueCreaterService.deleteQueue(
-                    switches.get(policyInStorage.swport.getSwitchDPID()),
-                    (short) policyInStorage.swport.getPort(), policyInStorage.queue);
-            NodePortTuple queueport = new NodePortTuple(policyInStorage.getDpid(), policyInStorage.getPort());
-            if (swPolicyTuples.get(queueport) != null) {
-                swPolicyTuples.get(queueport).remove(p);
-            }
+			if(policyInStorage.getSwport()!=null){
+	            queueCreaterService.deleteQueue(
+	                    switches.get(policyInStorage.swport.getSwitchDPID()),
+	                    (short) policyInStorage.swport.getPort(), policyInStorage.queue);
+	            NodePortTuple queueport = new NodePortTuple(policyInStorage.getDpid(), policyInStorage.getPort());
+	            if (swPolicyTuples.get(queueport) != null) {
+	                swPolicyTuples.get(queueport).remove(p);
+	            }
+				
+			}
             policyStorage.remove(policyInStorage.policyid);
         }
 	}
